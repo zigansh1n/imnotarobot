@@ -108,7 +108,7 @@ docker build -t imnotarobot .
 docker run -p 8765:8765 -e GEMINI_API_KEY=... -e CLIENT_KEY=your-access-key -v imnotarobot:/data imnotarobot
 ```
 
-`HUMAN_API_KEY` (and `HUMAN_PROVIDER=2captcha` if needed) adds the paid last step. Keys are kept in `/data/secrets.json`, readable only by the server.
+`HUMAN_API_KEY` (and `HUMAN_PROVIDER=2captcha` if needed) adds the paid last step. `HUMAN_PROVIDER=solvecha` is also available (https://api.solvecha.com); it solves picture and text tasks only (`ImageToTextTask`, `GridTask`, `ReCaptchaV2Classification`), not token captchas. See https://solvecha.com/docs. Keys are kept in `/data/secrets.json`, readable only by the server.
 
 ## Build from source
 

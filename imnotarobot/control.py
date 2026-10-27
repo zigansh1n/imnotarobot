@@ -25,7 +25,7 @@ from .i18n import tr
 
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "app.captcha-stack.plist"
 LAYER_TITLES = {"local": tr("Локальная модель"), "browser": tr("Браузер (галочки: reCAPTCHA, hCaptcha, Turnstile)"), "human": tr("Люди")}
-HUMAN_TITLES = {"rucaptcha": "RuCaptcha", "2captcha": "2Captcha"}
+HUMAN_TITLES = {"rucaptcha": "RuCaptcha", "2captcha": "2Captcha", "solvecha": "Solvecha"}
 
 
 def money(value: float, currency: str) -> str:

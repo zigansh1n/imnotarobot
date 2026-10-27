@@ -56,6 +56,8 @@ def test_human_settings(ctl):
     assert ctl.cfg.human_base_url == "https://api.2captcha.com" and ctl.secrets["human"] == "hkey"
     assert ctl.service.chain.daily_limits == {"human": 2.5, "cloud": 1.0}
     assert ctl.service.chain.layer("human").available()
+    ctl.set_human("solvecha")
+    assert ctl.cfg.human_base_url == "https://api.solvecha.com"
 
 
 def test_remove_model_deletes_its_key(ctl):

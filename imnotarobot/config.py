@@ -14,9 +14,10 @@ from .i18n import tr
 APP_DIR = Path(os.environ.get("IMNOTAROBOT_HOME") or os.environ.get("CAPTCHA_STACK_HOME")
                or Path.home() / "Library" / "Application Support" / "captcha-stack")
 KEYCHAIN_SERVICE = "captcha-stack"
-HUMAN_PRESETS = {"2captcha": "https://api.2captcha.com", "rucaptcha": "https://api.rucaptcha.com"}
+HUMAN_PRESETS = {"2captcha": "https://api.2captcha.com", "rucaptcha": "https://api.rucaptcha.com",
+                 "solvecha": "https://api.solvecha.com"}
 # RuCaptcha bills and reports balance in roubles, 2Captcha in dollars
-HUMAN_CURRENCY = {"2captcha": "$", "rucaptcha": "₽"}
+HUMAN_CURRENCY = {"2captcha": "$", "rucaptcha": "₽", "solvecha": "$"}
 HUMAN_TOPUP = {"2captcha": "https://2captcha.com/enterpage", "rucaptcha": "https://rucaptcha.com/enterpage"}
 
 
