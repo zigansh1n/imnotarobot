@@ -280,6 +280,61 @@ function prepareWidgetInfo(dataset) {
 /*
  * Communication with web page
  */
+
+// what a page may learn through getConfig: the detection switches only,
+// never the access key, the server address or the proxy
+const PAGE_CONFIG_KEYS = [
+    "enabledForNormal", "enabledForRecaptchaV2", "enabledForInvisibleRecaptchaV2", "enabledForRecaptchaV3",
+    "enabledForHCaptcha", "enabledForGeetest", "enabledForGeetest_v4", "enabledForKeycaptcha",
+    "enabledForArkoselabs", "enabledForLemin", "enabledForYandex", "enabledForCapyPuzzle",
+    "enabledForAmazonWaf", "enabledForTurnstile", "recaptchaV3MinScore", "blackListDomain",
+];
+
+function pageConfig(config) {
+    let safe = {};
+
+    for (let key of PAGE_CONFIG_KEYS) safe[key] = config[key];
+
+    return safe;
+}
+
+// which auto-solve switch governs a widget; a page-initiated solve is an automatic one
+const AUTO_SOLVE_KEYS = {
+    normal: "autoSolveNormal", hcaptcha: "autoSolveHCaptcha", geetest: "autoSolveGeetest",
+    geetest_v4: "autoSolveGeetest_v4", keycaptcha: "autoSolveKeycaptcha", arkoselabs: "autoSolveArkoselabs",
+    lemin: "autoSolveLemin", yandex: "autoSolveYandex", capy: "autoSolveCapyPuzzle",
+    amazon_waf: "autoSolveAmazonWaf", turnstile: "autoSolveTurnstile",
+};
+
+function autoSolveOn(widget, config) {
+    if (widget.captchaType === "recaptcha") {
+        if (widget.version === "v2") return !!config.autoSolveRecaptchaV2;
+        if (widget.version === "v2_invisible") return !!config.autoSolveInvisibleRecaptchaV2;
+        return !!config.autoSolveRecaptchaV3;
+    }
+
+    return !!config[AUTO_SOLVE_KEYS[widget.captchaType]];
+}
+
+/*
+ * A page may only ask for a captcha the extension itself found on the page, solved with the
+ * widget's own params — the page never chooses what gets solved. The same switches as for
+ * the on-page button apply, auto-solve included; the background rate-limits what passes here.
+ */
+function pageSolveRequest(widget, config) {
+    if (!config.isPluginEnabled || isBlockDomain(config.blackListDomain)) return null;
+
+    let processor = CaptchaProcessors.get(widget.captchaType);
+
+    if (!processor || !processor.canBeProcessed(widget, config) || !autoSolveOn(widget, config)) return null;
+
+    let params = processor.getParams(widget, config);
+
+    attachProxyParams(params, config);
+
+    return {action: "solve", captchaType: widget.captchaType, widgetId: widget.widgetId, params: params};
+}
+
 let webPageMsgInterval = setInterval(function () {
     $("body > solver-ext-messages").children().each(function () {
         let msg = $(this)[0];
@@ -289,19 +344,23 @@ let webPageMsgInterval = setInterval(function () {
 
             if (msg.dataset.action === "getConfig") {
                 Config.getAll().then(config => {
-                    setWebPageMessageResponse(msg, config);
+                    setWebPageMessageResponse(msg, pageConfig(config));
                 }).catch(e => {
                     setWebPageMessageResponse(msg, { error: e.message });
                 });
             } else if (msg.dataset.action === "solve") {
                 let data = JSON.parse(decodeURIComponent(msg.dataset.data));
 
-                background.postMessage({
-                    action: "solve",
-                    captchaType: data.captchaType,
-                    widgetId: data.widgetId,
-                    params: data.params,
-                    messageId: msg.dataset.messageId,
+                Config.getAll().then(config => {
+                    let widget = getWidgetInfo(data.captchaType, data.widgetId);
+                    let request = widget && pageSolveRequest(widget, config);
+
+                    if (!request) return setWebPageMessageResponse(msg, { error: "captcha_solving_is_disabled" });
+
+                    request.messageId = msg.dataset.messageId;
+                    background.postMessage(request);
+                }).catch(e => {
+                    setWebPageMessageResponse(msg, { error: e.message });
                 });
             } else if (msg.dataset.action === "getRecaptchaV3InterceptorInfo") {
                 setWebPageMessageResponse(msg, {

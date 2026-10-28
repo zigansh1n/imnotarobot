@@ -1,7 +1,11 @@
 """The browser extension ships with the app: it must stay whole, local and quiet."""
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 EXT = Path(__file__).parent.parent / "imnotarobot" / "extension"
 
@@ -54,3 +58,14 @@ def test_every_locale_names_the_new_fields():
         assert messages["apiService"]["message"]
         assert messages["apiKeyIsAppKey"]["message"]
         assert "2captcha" not in messages["extDescription"]["message"].lower()
+
+
+def test_page_facing_logic_in_node():
+    """The extension's own tests: config whitelist for pages, page-solve gating, per-tab rate
+    limit, and finding the app by /app-info before the key is ever sent. Needs node."""
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    script = Path(__file__).parent / "extension_js" / "js_tests.js"
+    r = subprocess.run(["node", str(script)], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "all extension js tests passed" in r.stdout

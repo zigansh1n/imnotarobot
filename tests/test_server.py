@@ -194,3 +194,13 @@ def test_extension_shaped_requests_roundtrip():
                 break
             time.sleep(0.02)
         assert r == {"status": 1, "request": "w0rd"}
+
+
+def test_app_info_names_the_app_without_a_key_or_secrets():
+    """The browser extension probes ports 8765-8774 for this before it ever sends the key."""
+    from imnotarobot import __version__
+
+    with make([FakeLayer("local", [("a", 1.0)])], client_key="secret") as c:
+        r = c.get("/app-info")
+        assert r.status_code == 200 and r.json() == {"app": "imnotarobot", "version": __version__}
+        assert "secret" not in r.text

@@ -10,6 +10,14 @@ Changes made by the ImNotARobot project:
   default) instead of 2captcha.com / rucaptcha.com; the address is a setting;
 - the 2captcha soft id (referral number 2834), links to 2captcha.com, the
   account sign-up hints and the contact block were removed;
+- the page-facing message channel was tightened: getConfig now answers with the
+  detection switches only (never the access key, the server address or the proxy),
+  and a page-initiated solve must pass the same enabled/auto-solve switches as the
+  on-page button, must name a widget the extension itself found, is solved with that
+  widget's own params and is rate-limited per tab in the background;
+- the app is found by probing 127.0.0.1:8765-8774 for /app-info (which this fork adds
+  to the app's server); the access key is only ever sent to a server that answers
+  with {"app": "imnotarobot"};
 - host_permissions were narrowed from <all_urls> to localhost, so the extension
   can only talk to the local solver; content scripts still run on all pages,
   which is what detection needs;
