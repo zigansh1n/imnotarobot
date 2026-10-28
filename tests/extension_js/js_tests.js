@@ -12,6 +12,8 @@ const vm = require("vm");
 const EXT = path.join(__dirname, "..", "..", "imnotarobot", "extension");
 
 let failures = 0;
+const warnings = [];  // console.warn of the loaded background, e.g. its startup probe
+console.warn = message => warnings.push(String(message));
 function check(name, condition) {
     console.log((condition ? "ok   " : "FAIL ") + name);
     if (!condition) failures++;
@@ -23,10 +25,12 @@ function eq(name, actual, expected) {
 }
 
 // ---------- browser stubs ----------
-let storedConfig = {};  // what chrome.storage.local holds under 'config'
+// the stored config starts with a key: the background's startup probe runs against it
+let storedConfig = {apiKey: "SECRET-KEY"};  // what chrome.storage.local holds under 'config'
 let apiClients = [];    // every TwoCaptcha the background constructed
 let apiCalls = [];      // every solve that reached a client
 let onConnectHandler = null;
+let onRemovedHandler = null;
 
 global.self = globalThis;
 global.location = {href: "https://demo.example/form"};
@@ -45,6 +49,7 @@ global.chrome = {
         connect: () => ({onMessage: {addListener() {}}, onDisconnect: {addListener() {}}, postMessage() {}}),
         openOptionsPage() {}, getURL: p => "chrome-extension://test/" + p, id: "test",
     },
+    tabs: {onRemoved: {addListener: fn => { onRemovedHandler = fn; }}},
     i18n: {getMessage: k => k, getUILanguage: () => "en"},
     contextMenus: {removeAll: cb => cb && cb(), create() {}, onClicked: {addListener() {}}},
 };
@@ -67,13 +72,20 @@ global.TwoCaptcha = class {
     async userInfo() { return {key_type: "customer", email: "ImNotARobot", balance: "0.00", valute: "USD"}; }
 };
 
-// what /app-info answers per base; null means the connection itself fails
+// what /app-info answers per base; null means the connection itself fails,
+// "hang" means the port accepts but never answers
 let reachable = {};
-global.fetch = async url => {
+global.fetch = async (url, options) => {
     if (url.endsWith("/app-info")) {
         const base = url.slice(0, -"/app-info".length);
         if (base in reachable) {
             if (reachable[base] === null) throw new TypeError("failed to fetch");
+            if (reachable[base] === "hang") {
+                // a silent server that still respects an abort, as a real one would
+                return new Promise((resolve, reject) => {
+                    options.signal.addEventListener("abort", () => reject(new TypeError("aborted")));
+                });
+            }
             return {ok: true, json: async () => reachable[base]};
         }
     }
@@ -160,6 +172,9 @@ async function main() {
     eq("the 6th page solve in a minute is refused", (await relaySolve(port, pageRequest)).error, "RATE_LIMIT_EXCEEDED");
     const otherTab = contentPort(8);
     check("another tab has its own allowance", (await relaySolve(otherTab, pageRequest)).response.code === "w9h5k");
+    // closing the tab clears its count: the id is reused by the next tab and starts fresh
+    onRemovedHandler(7, {windowId: 1, isWindowClosing: false});
+    check("a closed tab's count is forgotten", (await relaySolve(port, pageRequest)).response.code === "w9h5k");
     for (let i = 0; i < 8; i++) {
         const r = await relaySolve(port, {action: "solve", captchaType: "normal", widgetId: 0, params: {}});
         if (!r || !r.response) check("button solve is never rate-limited", false);
@@ -176,6 +191,19 @@ async function main() {
     eq("a working custom address is kept", await resolveService("http://127.0.0.1:9000"), "http://127.0.0.1:9000");
     reachable = {};
     check("nothing answering means no service", (await resolveService("http://127.0.0.1:8765")) === null);
+
+    // ---- finding B: a silent local port must not stall the probe ----
+    reachable = {"http://127.0.0.1:8765": "hang", "http://127.0.0.1:8766": {app: "imnotarobot"}};
+    const started = Date.now();
+    eq("a port that never answers is skipped after the timeout and the next one wins",
+       await resolveService("http://127.0.0.1:8765"), "http://127.0.0.1:8766");
+    const waited = Date.now() - started;
+    check(`the silent port cost one 1.5 s timeout, not the browser default (${waited} ms)`,
+          waited >= 1400 && waited < 5000);
+    reachable = {"http://127.0.0.1:9000": "hang"};
+    const alone = Date.now();
+    check("a silent configured address also gives up in time",
+          (await verifiedService("http://127.0.0.1:9000")) === null && Date.now() - alone < 5000);
 
     // ---- finding 7: the key is never sent to an unverified service ----
     API = null;
@@ -195,6 +223,11 @@ async function main() {
     check("login finds the app and connects", info.key_type === "customer");
     eq("the found port is remembered", storedConfig.apiService, "http://127.0.0.1:8767");
     eq("the client talks to the verified port only", apiClients[apiClients.length - 1].service, "http://127.0.0.1:8767");
+
+    // ---- finding B: the startup probe (run above, with a key stored and nothing reachable)
+    // must log the failure, not leave an unhandled rejection — node exits on one ----
+    check("startup probe logged the app's absence instead of rejecting unhandled",
+          warnings.some(w => w.includes("not running")));
 }
 
 main().then(() => {

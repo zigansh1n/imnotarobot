@@ -18,6 +18,9 @@ Config.getAll().then(async config => {
     if (config.apiKey) {
         await ensureApiClient();
     }
+}).catch(error => {
+    // the app is probably not running yet: the first solve retries and reports it properly
+    console.warn(error.message);
 });
 
 function initApiClient(apiKey, service) {
@@ -34,11 +37,20 @@ function initApiClient(apiKey, service) {
  * The app listens on 127.0.0.1:8765-8774, taking the first free port. A base is used only
  * after /app-info proves it is our app; the access key is never sent anywhere else.
  */
+const PROBE_TIMEOUT = 1500;
+
 async function verifiedService(base) {
+    // a local port that accepts the connection but never answers must not stall the probe
+    let controller = new AbortController();
+    let timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT);
+
     try {
-        let response = await fetch(base.replace(/\/+$/, "") + "/app-info");
+        let response = await fetch(base.replace(/\/+$/, "") + "/app-info", {signal: controller.signal});
         if (response.ok && (await response.json()).app === "imnotarobot") return base;
     } catch (e) {}
+    finally {
+        clearTimeout(timer);
+    }
 
     return null;
 }
@@ -92,6 +104,9 @@ function relayAllowed(tabId) {
 
     return true;
 }
+
+// tab ids get reused, and the map must not outlive the tab it counts for
+chrome.tabs.onRemoved.addListener(tabId => relayHistory.delete(tabId));
 
 
 /*
