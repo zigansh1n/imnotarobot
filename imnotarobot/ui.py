@@ -97,7 +97,8 @@ def state(c: "Controller") -> dict[str, Any]:
                   "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
         "layers": layers,
         "keys": [{"name": k.name, "provider": k.provider, "hint": k.hint, "baseUrl": k.base_url, "listable": k.listable, "note": k.note,
-                  "models": [{"id": mid, "enabled": on} for mid, on in c.key_models(k.name)]} for k in cfg.keys],
+                  "models": [{"id": mid, "enabled": on, "inPath": f"vlm:{k.name}/{mid}" in cfg.layers}
+                             for mid, on in c.key_models(k.name)]} for k in cfg.keys],
         "efforts": {m.name: {"recognition": m.effort_recognition, "clicks": m.effort_clicks,
                              "unsupported": m.name in NO_EFFORT} for m in cfg.models},
         "human": {"provider": cfg.human_provider, "currency": HUMAN_CURRENCY.get(cfg.human_provider, "$"),
@@ -119,6 +120,7 @@ def state(c: "Controller") -> dict[str, Any]:
         "detecting": c.detecting,
         "modelErrors": {name[4:]: {"at": at, "error": msg} for name, (at, msg) in LAST_ERRORS.items()},
         "modelTests": c.model_tests,
+        "toasts": [{"id": i, "text": text, "at": at} for i, (at, text) in c.toasts.items()],
         "benchCases": len(c.bench_cases()),
         "tiles": {"installed": tiles.available(), "sizeMb": tiles.SIZE_MB, "job": c.tiles_job},
         "update": c.update and {**c.update, "job": c.update_job},
@@ -239,6 +241,8 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
         if action == "toggle-model":
             c.toggle_key_model(b["key"], b["model"])
             on = any(m.key == b["key"] and m.model == b["model"] for m in c.cfg.models)
+            if on:
+                c.check_model_health(b["key"], b["model"])
             return done(tr("{model}: включена." if on else "{model}: выключена.", model=b["model"]))
         if action == "manual-model":
             entry = c.key(b["key"])
@@ -248,6 +252,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             if not any(mid == model for mid, *_ in entry.models):
                 entry.models.append([model, True, 0.0, 0.0])
             c.toggle_key_model(b["key"], model)
+            c.check_model_health(b["key"], model)
             return done(tr("{model} добавлена и включена.", model=model))
         if action == "toggle-layer":
             c.toggle_layer(b["id"])
