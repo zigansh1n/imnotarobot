@@ -138,13 +138,13 @@ body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none;
 .switch input:checked + span:after { transform: translateX(14px); background: var(--on-ink); }
 .now { margin-top: 14px; color: var(--mut); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .now .orb { width: 16px; height: 16px; --blur: 4px; --inset: 22%; }
-.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+/* limits: one settings row per limit, the controls on one right edge */
+.lim { display: grid; grid-template-columns: 110px 18px 34px; gap: 6px; align-items: center; }
+.lim input { width: 100%; }
+.lim .cur { color: var(--mut); }
+.lim input:disabled { opacity: .55; }
 /* layout rules such as .row set display, which would otherwise show hidden elements */
 [hidden] { display: none !important; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mut); }
-.lim { display: flex; align-items: center; gap: 8px; }
-.lim input { flex: 1; min-width: 0; }
-.nolim { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mut); white-space: nowrap; cursor: default; }
 
 /* keys */
 .key { border: .5px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-top: 10px; }
@@ -282,21 +282,17 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
       <div class="label">Быстрая reCAPTCHA</div>
       <div class="panel" id="tilesPanel"></div>
       <div class="label">Лимиты на день</div>
-      <div class="panel">
-        <div class="sub">Когда лимит исчерпан, ступень пропускается до конца дня и приходит уведомление.</div>
-        <form id="limitsForm">
-          <div class="limits">
-            <div class="field"><span>Облачные модели, $</span>
-              <div class="lim"><input id="limCloud" type="text" inputmode="decimal">
-                <label class="nolim"><span class="switch"><input type="checkbox" id="limCloudNo"><span></span></span>Без лимита</label></div></div>
-            <div class="field"><span>Люди, <span id="limCur1">₽</span></span>
-              <div class="lim"><input id="limHuman" type="text" inputmode="decimal">
-                <label class="nolim"><span class="switch"><input type="checkbox" id="limHumanNo"><span></span></span>Без лимита</label></div></div>
-            <div class="field"><span>Баланс для предупреждения, <span id="limCur2">₽</span></span><input id="limLow" type="text" inputmode="decimal"></div>
-            <div class="field" id="limRateField" hidden><span>Курс доллара, ₽</span><input id="limRate" type="text" inputmode="decimal"></div>
-          </div>
-          <div class="row" style="margin-top:12px"><span class="grow"></span><button class="primary">Сохранить</button></div>
-        </form>
+      <div class="panel" id="limitsPanel">
+        <div class="kv"><div><b>Облачные модели в день</b><br><span class="mut">Исчерпан — модели пропускаются до конца дня.</span></div>
+          <div class="lim"><input id="limCloud" data-limit="cloud" type="text" inputmode="decimal" placeholder="Без лимита"><span class="cur">$</span>
+            <label class="switch" title="Без лимита"><input type="checkbox" id="limCloudNo" data-limit-no="cloud"><span></span></label></div></div>
+        <div class="kv"><div><b>Люди в день</b><br><span class="mut">Исчерпан — капчи людям не уходят до конца дня.</span></div>
+          <div class="lim"><input id="limHuman" data-limit="human" type="text" inputmode="decimal" placeholder="Без лимита"><span class="cur" id="limCur1">₽</span>
+            <label class="switch" title="Без лимита"><input type="checkbox" id="limHumanNo" data-limit-no="human"><span></span></label></div></div>
+        <div class="kv"><div><b>Предупредить, когда баланс ниже</b><br><span class="mut">При остатке ниже этой суммы придёт уведомление.</span></div>
+          <div class="lim"><input id="limLow" data-limit="low" type="text" inputmode="decimal"><span class="cur" id="limCur2">₽</span></div></div>
+        <div class="kv" id="limRateRow" hidden><div><b>Курс доллара</b><br><span class="mut">По нему пересчитываются запасные ключи в другой валюте.</span></div>
+          <div class="lim"><input id="limRate" data-limit="rate" type="text" inputmode="decimal"><span class="cur">₽</span></div></div>
         <div class="mut" id="limitsState" style="margin-top:10px;font-size:12px"></div>
       </div>
     </section>
@@ -457,10 +453,14 @@ const EN = {
   "Последние": "Recent", "Пока ни одной.": "None yet.",
   "Все ступени выключены — включите их в разделе «Путь капчи».": "All steps are off, turn them on in «Captcha path».",
   "Капча идёт сверху вниз, пока кто-то не решит. Перетащите строку, чтобы поменять порядок.": "A captcha goes top to bottom until a step solves it. Drag a row to change the order.",
-  "Лимиты на день": "Daily limits", "Когда лимит исчерпан, ступень пропускается до конца дня и приходит уведомление.":
-    "When a limit is used up, the step is skipped until the end of the day and you get a notification.",
+  "Лимиты на день": "Daily limits",
+  "Облачные модели в день": "Cloud models per day", "Люди в день": "Humans per day",
+  "Предупредить, когда баланс ниже": "Warn when the balance is below", "Курс доллара": "Dollar rate",
+  "Исчерпан — модели пропускаются до конца дня.": "Used up — the models are skipped until the end of the day.",
+  "Исчерпан — капчи людям не уходят до конца дня.": "Used up — captchas are not sent to humans until the end of day.",
+  "При остатке ниже этой суммы придёт уведомление.": "A notification arrives when the remainder is below this amount.",
+  "По нему пересчитываются запасные ключи в другой валюте.": "Spare keys in another currency are converted at this rate.",
   "Без лимита": "No limit",
-  "Облачные модели, $": "Cloud models, $", "Люди,": "Humans,", "Баланс для предупреждения,": "Warn when the balance is below,", "Курс доллара, ₽": "Dollar rate, ₽", "Сохранить": "Save",
   "Своя модель": "Local model", "Браузер": "Browser", "текст и слайдеры · мгновенно": "text and sliders · instant",
   "галочки reCAPTCHA, hCaptcha, Turnstile": "reCAPTCHA, hCaptcha, Turnstile checkboxes", "люди · платно": "humans · paid",
   "картинки, сетки, клики": "pictures, grids, clicks", "нет ключа": "no key", "нужен Google Chrome": "needs Google Chrome",
@@ -615,6 +615,7 @@ function ask(text, yes) {
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") { if (drag) cancelDrag(); else { if (ask.close) ask.close(false); $("entryBox").hidden = true; } }
   if (e.key === "Enter" && ask.close && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); ask.close(true); }
+  if (e.key === "Enter" && e.target.dataset?.limit) { e.preventDefault(); e.target.blur(); }
   // Alt + an arrow moves the focused row, for those who prefer the keyboard
   if (e.altKey && !drag && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
     const row = document.activeElement?.closest?.(".layer");
@@ -939,18 +940,27 @@ function renderTiles(t) {
   $("tilesPanel").innerHTML = body + (j.error ? `<div class="mut" style="margin-top:8px"><span class="tag bad">ошибка</span> ${esc(j.error)}</div>` : "");
 }
 
-// a half-edited limits form keeps its draft until saved: the periodic refresh must not wipe it
-let limitsDirty = false;
+// ---------- daily limits: settings rows, each saving itself ----------
+const LIMITS = {
+  cloud: {input: "limCloud", no: "limCloudNo", saved: () => S.cloud.limit},
+  human: {input: "limHuman", no: "limHumanNo", saved: () => S.human.limit},
+  low: {input: "limLow", saved: () => S.human.lowBalance},
+  rate: {input: "limRate", saved: () => S.human.rubPerUsd},
+};
+// the row whose "Без лимита" was switched off but has no number yet waits for one, safe from the refresh
+const limitPending = new Set();
+
+// the text a field shows for the saved state: nothing at all when there is no limit
+const limitText = id => { const f = LIMITS[id], v = f.saved(); return f.no && !v ? "" : String(v ?? ""); };
 
 function renderLimits(s) {
   const h = s.human, cur = h.currency, mixed = h.spares.some(a => a.currency !== cur);
   $("limCur1").textContent = $("limCur2").textContent = cur;
-  $("limRateField").hidden = !mixed;
-  if (!limitsDirty) {
-    limitField("limCloud", s.cloud.limit);
-    limitField("limHuman", h.limit);
-    setIfIdle("limLow", h.lowBalance);
-    setIfIdle("limRate", h.rubPerUsd);
+  $("limRateRow").hidden = !mixed;
+  for (const [id, f] of Object.entries(LIMITS)) {
+    if (limitPending.has(id)) continue;
+    if (f.no) limitRow(f);
+    else setIfIdle(f.input, f.saved());
   }
   const of = (spent, limit, c) => limit ? `${money(spent, c)} из ${money(limit, c)}` : `${money(spent, c)}`;
   const unpriced = s.cloud.unpriced.length ? ` У ${s.cloud.unpriced.length} моделей цена неизвестна — их траты в лимит не попадают.` : "";
@@ -960,13 +970,37 @@ function renderLimits(s) {
     (unpriced ? `<span>${esc(unpriced)}</span>` : "") + (rate ? `<span>${esc(rate)}</span>` : "");
 }
 
-// "Без лимита" ticked: the field is off and the saved value is 0
-function limitField(id, limit) {
-  const no = !limit;
-  $(id + "No").checked = no;
-  $(id).disabled = no;
-  setIfIdle(id, no ? "" : limit);
+// "Без лимита" on: the field is off and empty, and 0 is what gets saved
+function limitRow(f) {
+  const off = !f.saved();
+  $(f.no).checked = off;
+  $(f.input).disabled = off;
+  $(f.input).placeholder = off ? "Без лимита" : "";
+  setIfIdle(f.input, off ? "" : f.saved());
 }
+
+// saves one row through the "limits" action; a bad number is toasted by the action,
+// and the field is then put back to the saved value — focus or not
+async function saveLimit(id, value) {
+  await api("limits", {[id]: value});
+  syncLimit(id);
+}
+
+function syncLimit(id) {
+  limitPending.delete(id);
+  const f = LIMITS[id];
+  if (f.no) limitRow(f);
+  $(f.input).value = limitText(id);
+}
+
+// a row saves itself when its field is done: on blur, or on Enter (which blurs it)
+document.addEventListener("focusout", e => {
+  const id = e.target.dataset?.limit;
+  if (!id || !LIMITS[id]) return;
+  const value = e.target.value.trim();
+  if (!value) return syncLimit(id);  // nothing typed: back to the saved value (or to "Без лимита")
+  if (value !== limitText(id)) saveLimit(id, value);
+});
 
 // where macOS decides whether the app may run in the background and notify
 const PANES = {background: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
@@ -1173,17 +1207,16 @@ document.addEventListener("change", e => {
   if (t.dataset.noteKey) return api("key-note", {name: t.dataset.noteKey, note: t.value});
   if (t.id === "companionRestart") return api("companion-restart", {on: t.checked});
   if (t.id === "journalFilter") return renderJournal(S.recent);
-  if (t.id === "limCloudNo" || t.id === "limHumanNo") {
-    limitsDirty = true;
-    const input = $(t.id.slice(0, -2));
+  if (t.dataset.limitNo) {
+    const id = t.dataset.limitNo, f = LIMITS[id], input = $(f.input);
     input.disabled = t.checked;
-    if (!t.checked) input.focus();
+    if (t.checked) { input.value = ""; limitPending.add(id); saveLimit(id, "0"); }
+    else { limitPending.add(id); input.focus(); }  // waiting for a number; the refresh leaves the row alone
     return;
   }
   if (t.id === "popRun") return api("pause", {paused: !t.checked});
 });
 document.addEventListener("input", e => {
-  if (e.target.closest("#limitsForm")) limitsDirty = true;  // a half-edited form is left alone by the refresh
   const f = e.target.dataset.filter; if (!f) return;
   const q = e.target.value.toLowerCase();
   document.querySelectorAll(`[data-models="${CSS.escape(f)}"] label`).forEach(l => l.hidden = !l.title.toLowerCase().includes(q));
@@ -1199,12 +1232,6 @@ document.addEventListener("submit", async e => {
     if (await api("spare-add", {provider: $("spareProvider").value, key: $("spareKey").value.trim(), note: $("spareNote").value.trim()}, btn)) {
       $("spareKey").value = ""; $("spareNote").value = "";
     }
-  } else if (f.id === "limitsForm") {
-    // a ticked "Без лимита" keeps saving 0, as the action has always taken
-    const body = {cloud: $("limCloudNo").checked ? "0" : $("limCloud").value,
-                  human: $("limHumanNo").checked ? "0" : $("limHuman").value,
-                  low: $("limLow").value, rate: $("limRate").value};
-    if (await api("limits", body, btn)) { limitsDirty = false; btn.blur(); }
   } else if (f.dataset.manual) {
     const input = f.querySelector("input");
     if (await api("manual-model", {key: f.dataset.manual, model: input.value.trim()}, btn)) input.value = "";
