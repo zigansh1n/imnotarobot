@@ -131,6 +131,7 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
 .now { margin-top: 14px; color: var(--mut); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .now .orb { width: 16px; height: 16px; --blur: 4px; --inset: 22%; }
 .limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+.limits label[hidden] { display: none; }
 label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mut); }
 
 /* keys */
@@ -270,6 +271,7 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
           <label class="field"><span>Облачные модели, $</span><input id="limCloud" type="text" inputmode="decimal"></label>
           <label class="field"><span>Люди, <span id="limCur1">₽</span></span><input id="limHuman" type="text" inputmode="decimal"></label>
           <label class="field"><span>Баланс для предупреждения, <span id="limCur2">₽</span></span><input id="limLow" type="text" inputmode="decimal"></label>
+          <label class="field" id="limRateField" hidden><span>Курс доллара, ₽</span><input id="limRate" type="text" inputmode="decimal"></label>
           <button class="primary">Сохранить</button>
         </form>
         <div class="mut" id="limitsState" style="margin-top:10px;font-size:12px"></div>
@@ -413,7 +415,7 @@ const EN = {
   "Капча идёт сверху вниз, пока кто-то не решит. Перетащите строку, чтобы поменять порядок.": "A captcha goes top to bottom until a step solves it. Drag a row to change the order.",
   "Лимиты на день": "Daily limits", "0 — без лимита. Когда лимит исчерпан, ступень пропускается до конца дня и приходит уведомление.":
     "0 means no limit. When a limit is used up, the step is skipped until the end of the day and you get a notification.",
-  "Облачные модели, $": "Cloud models, $", "Люди,": "Humans,", "Баланс для предупреждения,": "Warn when the balance is below,", "Сохранить": "Save",
+  "Облачные модели, $": "Cloud models, $", "Люди,": "Humans,", "Баланс для предупреждения,": "Warn when the balance is below,", "Курс доллара, ₽": "Dollar rate, ₽", "Сохранить": "Save",
   "Своя модель": "Local model", "Браузер": "Browser", "текст и слайдеры · мгновенно": "text and sliders · instant",
   "галочки reCAPTCHA, hCaptcha, Turnstile": "reCAPTCHA, hCaptcha, Turnstile checkboxes", "люди · платно": "humans · paid",
   "картинки, сетки, клики": "pictures, grids, clicks", "нет ключа": "no key", "нужен Google Chrome": "needs Google Chrome",
@@ -429,7 +431,7 @@ const EN = {
   "Все модели с картинками": "All vision models", "Найти модель": "Find a model", "Список недоступен — впишите название вручную.": "The list is unavailable, enter a name by hand.",
   "Вписать модель вручную": "Enter a model by hand", "Сравнить все модели ключа": "Compare all models of the key", "Обновить список": "Refresh the list",
   "введите ключ ещё раз": "enter the key again", "прошлая версия сохранила его так, что новая не может прочитать": "the previous version saved it so that this one cannot read it",
-  "Нет ключа — последняя ступень выключена.": "No key, the last step is off.", "ключ работает": "the key works", "ошибка": "error", "ключ сохранён": "key saved",
+  "Нет ключа — последняя ступень выключена.": "No key, the last step is off.", "Основного ключа нет — капчи берут запасные.": "No main key — the spares take the captchas.", "ключ работает": "the key works", "ошибка": "error", "ключ сохранён": "key saved",
   "баланс": "balance", "— пора пополнить": "— time to top up",
   "Что нового": "What's new", "Обновить": "Update", "Ещё раз": "Try again",
   "Приложение понимает API 2Captcha и RuCaptcha. В своей программе поменяйте адрес сервиса на этот, а ключ — на ключ доступа.":
@@ -483,7 +485,8 @@ const RULES = [
   [/^Последнюю капчу решила ступень «(.+)»$/, (m, a) => `The last captcha was solved by «${t(a)}»`],
   [/^(.+) · ([\d.,]+) с$/, (m, a, b) => `${t(a)} · ${b} s`],
   [/^Сегодня: модели (.+), люди (.+)\.(.*)$/, (m, a, b, c) => `Today: models ${a.replace(" из ", " of ")}, humans ${b.replace(" из ", " of ")}.${c ? t(c) : ""}`],
-  [/^ У (\d+) моделей цена неизвестна — их траты в лимит не попадают\.$/, " $1 models have no known price, their spend is not counted in the limit."],
+  [/^У (\d+) моделей цена неизвестна — их траты в лимит не попадают\.$/, "$1 models have no known price, their spend is not counted in the limit."],
+  [/^Запасные в другой валюте пересчитываются по курсу ([\d.,]+) ₽\/\$\.$/, "Spare accounts in another currency are converted at $1 ₽/$."],
   [/^(\d+) из (.+) файлов$/, "$1 of $2 files"], [/^скачан · (\d+) капч$/, "downloaded · $1 captchas"], [/^Скачать ~(\S+) МБ$/, "Download ~$1 MB"], [/^Скачать (\d+) МБ$/, "Download $1 MB"], [/^(\d+) из (\d+) МБ$/, "$1 of $2 MB"],
   [/^(\d+) из (\d+)$/, "$1 of $2"], [/^ошибок: (\d+)$/, "errors: $1"], [/^Сравнение от (.+)$/, (m, a) => `Comparison from ${t(a)}`],
   [/^(\d+) мин назад$/, "$1 min ago"], [/^(.+) бесплатно · (.+)$/, "$1 free · $2"], [/^(\d+) · (.+)$/, (m, a, b) => `${a} · ${t(b)}`],
@@ -751,7 +754,8 @@ function renderHuman(s) {
   setIfIdle("humanProvider", h.provider);
   $("humanTitle").textContent = HUMAN_NAMES[h.provider] || h.provider;
   setIfIdle("humanNote", h.note || "");
-  $("humanState").innerHTML = !h.hasKey && h.legacyKey ? '<span class="tag warn">введите ключ ещё раз</span> прошлая версия сохранила его так, что новая не может прочитать' :
+  $("humanState").innerHTML = !h.hasKey && h.spares.length ? "Основного ключа нет — капчи берут запасные." :
+    !h.hasKey && h.legacyKey ? '<span class="tag warn">введите ключ ещё раз</span> прошлая версия сохранила его так, что новая не может прочитать' :
     !h.hasKey ? "Нет ключа — последняя ступень выключена." :
     st.ok ? `<span class="tag ${st.balance < h.lowBalance ? "warn" : "good"}">ключ работает</span> <span class="mono">${esc(h.hint)}</span> · баланс <b>${money(st.balance, cur)}</b>${st.balance < h.lowBalance ? " — пора пополнить" : ""}` :
     st.error ? `<span class="tag bad">ошибка</span> <span class="mono">${esc(h.hint)}</span> ${esc(st.error)}` :
@@ -785,12 +789,16 @@ function renderTiles(t) {
 }
 
 function renderLimits(s) {
-  const h = s.human, cur = h.currency;
+  const h = s.human, cur = h.currency, mixed = h.spares.some(a => a.currency !== cur);
   $("limCur1").textContent = $("limCur2").textContent = cur;
-  setIfIdle("limCloud", s.cloud.limit); setIfIdle("limHuman", h.limit); setIfIdle("limLow", h.lowBalance);
+  $("limRateField").hidden = !mixed;
+  setIfIdle("limCloud", s.cloud.limit); setIfIdle("limHuman", h.limit); setIfIdle("limLow", h.lowBalance); setIfIdle("limRate", h.rubPerUsd);
   const of = (spent, limit, c) => limit ? `${money(spent, c)} из ${money(limit, c)}` : `${money(spent, c)}`;
   const unpriced = s.cloud.unpriced.length ? ` У ${s.cloud.unpriced.length} моделей цена неизвестна — их траты в лимит не попадают.` : "";
-  $("limitsState").textContent = `Сегодня: модели ${of(s.cloud.spentToday, s.cloud.limit, "$")}, люди ${of(h.spentToday, h.limit, cur)}.` + unpriced;
+  const rate = mixed ? ` Запасные в другой валюте пересчитываются по курсу ${h.rubPerUsd} ₽/$.` : "";
+  // the notes sit in spans of their own so that each sentence is translated on its own
+  $("limitsState").innerHTML = `Сегодня: модели ${of(s.cloud.spentToday, s.cloud.limit, "$")}, люди ${of(h.spentToday, h.limit, cur)}.` +
+    (unpriced ? `<span>${esc(unpriced)}</span>` : "") + (rate ? `<span>${esc(rate)}</span>` : "");
 }
 
 function renderConnect(s) {
@@ -990,7 +998,7 @@ document.addEventListener("submit", async e => {
       $("spareKey").value = ""; $("spareNote").value = "";
     }
   } else if (f.id === "limitsForm") {
-    if (await api("limits", {cloud: $("limCloud").value, human: $("limHuman").value, low: $("limLow").value}, btn)) btn.blur();
+    if (await api("limits", {cloud: $("limCloud").value, human: $("limHuman").value, low: $("limLow").value, rate: $("limRate").value}, btn)) btn.blur();
   } else if (f.dataset.manual) {
     const input = f.querySelector("input");
     if (await api("manual-model", {key: f.dataset.manual, model: input.value.trim()}, btn)) input.value = "";

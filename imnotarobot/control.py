@@ -334,6 +334,8 @@ class Controller:
         st = getattr(self, "human_status", None) or {}
         name = HUMAN_TITLES.get(self.cfg.human_provider, self.cfg.human_provider)
         if not self.cfg.human_api_key:
+            if self.cfg.human_extra:
+                return tr("Люди ({name}): нет основного ключа, капчи берут запасные", name=name)
             return tr("Люди ({name}): введите ключ ещё раз", name=name) if self.legacy_human_key else tr("Люди ({name}): нет ключа", name=name)
         if st.get("ok"):
             cur = HUMAN_CURRENCY.get(self.cfg.human_provider, "$")

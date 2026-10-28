@@ -28,6 +28,36 @@ ERROR_TEXT = {code: tr(text) for code, text in {
 # Token captchas (reCAPTCHA, hCaptcha, Turnstile…) are only solvable here, so any task type is forwarded as is.
 LOCAL_ONLY_TYPES = frozenset({"SlideMatchTask"})
 
+# these say the account or its service failed, so the next account may do better
+ACCOUNT_ERRORS = frozenset({
+    "ERROR_KEY_DOES_NOT_EXIST", "ERROR_WRONG_USER_KEY", "ERROR_ZERO_BALANCE", "ERROR_NO_SLOT_AVAILABLE",
+    "ERROR_IP_NOT_ALLOWED", "ERROR_IP_BANNED", "ERROR_TASK_NOT_SUPPORTED",
+})
+# these say the captcha itself failed: another account would only repeat that, or be paid twice
+CAPTCHA_ERRORS = frozenset({
+    "ERROR_CAPTCHA_UNSOLVABLE", "ERROR_TOO_BIG_CAPTCHA_FILESIZE", "ERROR_ZERO_CAPTCHA_FILESIZE",
+    "ERROR_WRONG_FILE_EXTENSION", "ERROR_IMAGE_TYPE_NOT_SUPPORTED", "ERROR_BAD_PARAMETERS", "ERROR_PAGEURL",
+})
+
+
+class AccountError(Unsolvable):
+    """The account or its service failed: the next account may still take the captcha."""
+
+
+class CaptchaError(Unsolvable):
+    """The captcha itself failed: moving to the next account would repeat it, or pay twice."""
+
+
+def _worth_another_account(e: Exception, accepted: bool) -> bool:
+    """A failure of the account or its service is worth the next account; a failure of the captcha
+    would only repeat, and a task the service has already accepted may still be solved and paid for."""
+    if isinstance(e, AccountError):
+        return True
+    if isinstance(e, CaptchaError):
+        return False
+    # a network error or a non-JSON answer is the service's too, and so is anything before the task is accepted
+    return isinstance(e, (httpx.HTTPError, ValueError)) or not accepted
+
 
 @dataclass
 class Account:
@@ -41,7 +71,8 @@ class Account:
 class HumanLayer(Layer):
     """2Captcha / RuCaptcha / Anti-Captcha API v2: workers plus their own AI, the last resort.
 
-    Spare accounts are tried in order when the main one cannot take the captcha.
+    Spare accounts are tried in order when the main one fails as an account or a service;
+    a captcha failure stops at the first one, so a task is never paid for twice.
     """
 
     name = "human"
@@ -72,10 +103,17 @@ class HumanLayer(Layer):
     async def _post(self, client: httpx.AsyncClient, method: str, body: dict[str, Any], account: Account | None = None) -> dict[str, Any]:
         account = account or self.accounts[0]
         r = await client.post(f"{account.base_url}/{method}", json={"clientKey": account.api_key, **body})
+        if r.status_code >= 500:
+            raise AccountError(tr("сервис ответил HTTP {status}: {text}", status=r.status_code, text=r.text[:200]))
         j = r.json()
         if j.get("errorId"):
             code = j.get("errorCode") or ""
-            raise Unsolvable(f"{ERROR_TEXT.get(code, j.get('errorDescription') or tr('ошибка сервиса'))} ({code})")
+            text = f"{ERROR_TEXT.get(code, j.get('errorDescription') or tr('ошибка сервиса'))} ({code})"
+            if code in CAPTCHA_ERRORS:
+                raise CaptchaError(text)
+            if code in ACCOUNT_ERRORS:
+                raise AccountError(text)
+            raise Unsolvable(text)
         return j
 
     async def solve(self, task: dict[str, Any]) -> Result:
@@ -85,22 +123,30 @@ class HumanLayer(Layer):
             try:
                 return await self._solve(task, i, account)
             except (Unsolvable, httpx.HTTPError, ValueError) as e:
-                if len(ready) == 1:
+                # a captcha failure stops here: the next account could mean a second payment
+                if len(ready) == 1 or not isinstance(e, AccountError):
                     raise Unsolvable(str(e)) from e
                 errors.append(f"{account.label or account.base_url}: {e}")
         raise Unsolvable("; ".join(errors) or tr("нет ключа"))
 
     async def _solve(self, task: dict[str, Any], index: int, account: Account) -> Result:
         async with httpx.AsyncClient(timeout=30, transport=self.transport) as client:
-            created = await self._post(client, "createTask", {"task": task}, account)
-            task_id = created["taskId"]
-            deadline = time.monotonic() + self.timeout
-            while time.monotonic() < deadline:
-                await asyncio.sleep(self.poll_interval)
-                j = await self._post(client, "getTaskResult", {"taskId": task_id}, account)
-                if j.get("status") == "ready":
-                    return Result(j["solution"], 1.0, self.name, cost=float(j.get("cost") or 0) * account.rate,
-                                  meta={"remote_task_id": task_id, "account": index})
+            accepted = False
+            try:
+                created = await self._post(client, "createTask", {"task": task}, account)
+                task_id = created["taskId"]
+                accepted = True
+                deadline = time.monotonic() + self.timeout
+                while time.monotonic() < deadline:
+                    await asyncio.sleep(self.poll_interval)
+                    j = await self._post(client, "getTaskResult", {"taskId": task_id}, account)
+                    if j.get("status") == "ready":
+                        return Result(j["solution"], 1.0, self.name, cost=float(j.get("cost") or 0) * account.rate,
+                                      meta={"remote_task_id": task_id, "account": index})
+            except (Unsolvable, httpx.HTTPError, ValueError) as e:
+                if _worth_another_account(e, accepted):
+                    raise AccountError(str(e)) from e
+                raise
         raise Unsolvable(tr("нет ответа от {url} за {seconds} с", url=account.base_url, seconds=f"{self.timeout:.0f}"))
 
     async def report_incorrect(self, result: Result) -> None:

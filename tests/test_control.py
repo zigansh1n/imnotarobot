@@ -272,6 +272,14 @@ def test_spare_human_accounts_keep_their_key_in_keychain_and_a_label(ctl):
     assert not Config.load().human_extra and f"human:{a.id}" not in ctl.secrets
 
 
+def test_human_line_without_a_main_key_names_the_spares(ctl):
+    ctl.add_human_account("anticaptcha", "ac-secret-key-1234", "рабочий")
+    assert not ctl.cfg.human_api_key
+    assert ctl.human_line() == "Люди (RuCaptcha): нет основного ключа, капчи берут запасные"
+    # the step itself keeps working through the spare account
+    assert ctl.service.chain.layer("human").available()
+
+
 def test_notes_on_keys_survive_reload(ctl):
     ctl.set_human(note="основной, RuCaptcha")
     ctl.cfg.keys.append(config.KeyEntry(name="proxy", provider="custom"))
