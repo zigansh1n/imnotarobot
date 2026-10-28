@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from .config import HUMAN_CURRENCY
 from .service import Service
 
 
@@ -100,17 +99,18 @@ def add_legacy_routes(app: FastAPI, svc: Service) -> None:
         action = p.get("action", "get")
         if action == "getbalance":
             try:
-                return PlainTextResponse(f"{await svc.balance():.5f}") if p.get("json") != "1" else \
-                    JSONResponse({"status": 1, "request": f"{await svc.balance():.5f}"})
+                balance, _ = await svc.balance()
+                return PlainTextResponse(f"{balance:.5f}") if p.get("json") != "1" else \
+                    JSONResponse({"status": 1, "request": f"{balance:.5f}"})
             except Exception:
                 return reply(p, 0, "ERROR_UPSTREAM")
         if action == "userinfo":
             # the browser extension's "login": proves the key works and shows the balance of the workers' step
             try:
-                balance = await svc.balance()
+                balance, cur = await svc.balance()
             except Exception:
                 return reply(p, 0, "ERROR_UPSTREAM")
-            valute = "RUB" if HUMAN_CURRENCY.get(svc.cfg.human_provider, "$") == "₽" else "USD"
+            valute = "RUB" if cur == "₽" else "USD"
             return reply(p, 1, {"key_type": "customer", "email": "ImNotARobot",
                                 "balance": f"{balance:.2f}", "valute": valute})
         try:

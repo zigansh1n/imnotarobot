@@ -23,7 +23,7 @@ from .discovery import detect_sync, recommended_models
 from .providers import PRESETS, ModelSpec
 from .server import create_app
 from .layers import HumanLayer
-from .service import Service
+from .service import Service, answering_account
 from .i18n import tr
 
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "app.captcha-stack.plist"
@@ -323,13 +323,16 @@ class Controller:
     def check_human(self) -> dict:
         """Asks the workers' service for the balance: proves the key works. Cached for the menu."""
         human = self.service.chain.layer("human")
-        if not human or not human.available():
+        if not isinstance(human, HumanLayer) or not human.available():
             self.human_status = {"ok": False, "error": tr("нет ключа")}
-        else:
-            try:
-                self.human_status = {"ok": True, "balance": asyncio.run(self.service.balance())}
-            except Exception as e:
-                self.human_status = {"ok": False, "error": str(e)[:120]}
+            return self.human_status
+        # with no main key the first spare account is the one that answers
+        index, provider, rate = answering_account(self.cfg, human)
+        try:
+            self.human_status = {"ok": True, "balance": asyncio.run(human.balance(index)),
+                                 "provider": provider, "currency": HUMAN_CURRENCY.get(provider, "$"), "rate": rate}
+        except Exception as e:
+            self.human_status = {"ok": False, "error": str(e)[:120]}
         return self.human_status
 
     def human_line(self) -> str:
@@ -340,8 +343,9 @@ class Controller:
                 return tr("Люди ({name}): нет основного ключа, капчи берут запасные", name=name)
             return tr("Люди ({name}): введите ключ ещё раз", name=name) if self.legacy_human_key else tr("Люди ({name}): нет ключа", name=name)
         if st.get("ok"):
-            cur = HUMAN_CURRENCY.get(self.cfg.human_provider, "$")
-            low = tr(" — пора пополнить") if st["balance"] < self.cfg.human_low_balance else ""
+            # the balance may be a spare's, in its own currency; the threshold is in the main one
+            cur = st.get("currency") or HUMAN_CURRENCY.get(self.cfg.human_provider, "$")
+            low = tr(" — пора пополнить") if st["balance"] * st.get("rate", 1.0) < self.cfg.human_low_balance else ""
             return tr("Люди ({name}): ✓ баланс {money}{low}", name=name, money=money(st["balance"], cur), low=low)
         if st:
             return tr("Люди ({name}): ⚠ {error}", name=name, error=st.get("error", "")[:40])
@@ -587,8 +591,11 @@ class Controller:
         out = []
         cur = HUMAN_CURRENCY.get(self.cfg.human_provider, "$")
         st = self.human_status or {}
-        if st.get("ok") and st["balance"] < self.cfg.human_low_balance:
-            out.append(("low-balance", tr("На {service} осталось {money} — пора пополнить.", service=HUMAN_TITLES.get(self.cfg.human_provider), money=money(st["balance"], cur))))
+        if st.get("ok") and st["balance"] * st.get("rate", 1.0) < self.cfg.human_low_balance:
+            # the answering account may be a spare: name it and show its own currency
+            provider = st.get("provider") or self.cfg.human_provider
+            out.append(("low-balance", tr("На {service} осталось {money} — пора пополнить.", service=HUMAN_TITLES.get(provider, provider),
+                                           money=money(st["balance"], HUMAN_CURRENCY.get(provider, "$")))))
         limit = self.cfg.human_daily_limit
         if limit and self.service.chain.state.spent_today("human") >= limit:
             out.append(("human-limit", tr("Люди: исчерпан дневной лимит {money}. До завтра капчи им не отправляются.", money=money(limit, cur))))

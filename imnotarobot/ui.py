@@ -273,7 +273,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             if not st["ok"]:
                 return JSONResponse({"ok": False, "error": tr("ключ сохранён, но {service} его не принял: {error}", service=c.cfg.human_provider, error=st["error"]),
                                      "state": state(c)}, status_code=400)
-            return done(tr("Ключ работает, баланс {money}.", money=money(st["balance"], HUMAN_CURRENCY.get(c.cfg.human_provider, "$"))))
+            return done(tr("Ключ работает, баланс {money}.", money=money(st["balance"], st.get("currency") or HUMAN_CURRENCY.get(c.cfg.human_provider, "$"))))
         if action == "human-note":
             c.set_human(note=str(b.get("note") or ""))
             return done(tr("Подпись сохранена."))
@@ -354,7 +354,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             st = await run_in_threadpool(c.check_human)
             if not st["ok"]:
                 return JSONResponse({"ok": False, "error": st["error"], "state": state(c)}, status_code=400)
-            return done(tr("Баланс {money}.", money=money(st["balance"], cur)))
+            return done(tr("Баланс {money}.", money=money(st["balance"], st.get("currency") or cur)))
         if action == "pause":
             c.set_paused(bool(b.get("paused")))
             return done(tr("Решатель на паузе.") if c.service.paused else tr("Решатель работает."))

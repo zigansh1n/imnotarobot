@@ -789,7 +789,9 @@ function renderHuman(s) {
     st.error ? `<span class="tag bad">ошибка</span> <span class="mono">${esc(h.hint)}</span> ${esc(st.error)}` :
     `<span class="tag">ключ сохранён</span> <span class="mono">${esc(h.hint)}</span>`;
   $("topup").href = h.topup || "#";
-  $("removeHuman").disabled = $("checkHuman").disabled = !h.hasKey;
+  $("removeHuman").disabled = !h.hasKey;
+  // with no main key the check asks the first spare account that has a key
+  $("checkHuman").disabled = !h.hasKey && !h.spares.length;
   const box = $("spares");
   if (box.contains(document.activeElement)) return;
   box.innerHTML = h.spares.map(a => {

@@ -199,7 +199,8 @@ class MenuBarApp(rumps.App):
         AppHelper.callAfter(fn, arg)
 
     def _check_human(self) -> None:
-        if self.c.cfg.human_api_key:
+        # spare accounts alone are worth checking too: they are what solves when the main key is gone
+        if self.c.cfg.human_api_key or self.c.cfg.human_extra:
             self.c.check_human()
 
     def _check_updates(self) -> None:

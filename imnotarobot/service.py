@@ -51,6 +51,14 @@ def spare_accounts(cfg: Config) -> list[Account]:
     return out
 
 
+def answering_account(cfg: Config, human: HumanLayer) -> tuple[int, str, float]:
+    """The first workers' account that has a key: (its index, provider, rate into the main currency).
+    With no main key that account is the first spare, and its balance is what the checks must show."""
+    index = next((i for i, a in enumerate(human.accounts) if a.api_key), 0)
+    provider = cfg.human_provider if not index or index > len(cfg.human_extra) else cfg.human_extra[index - 1].provider
+    return index, provider, human.accounts[index].rate
+
+
 JOURNAL_KEEP = 300
 
 
@@ -190,11 +198,14 @@ class Service:
         await self.chain.report_incorrect(job.task, job.result)
         return self.submit(job.task) if retry else None
 
-    async def balance(self) -> float:
+    async def balance(self) -> tuple[float, str]:
+        """The balance of the first workers' account that has a key, with that account's currency:
+        with no main key a spare account is the one that answers."""
         human = self.chain.layer("human")
-        if isinstance(human, HumanLayer) and human.available():
-            return await human.balance()
-        return 0.0
+        if not isinstance(human, HumanLayer) or not human.available():
+            return 0.0, HUMAN_CURRENCY.get(self.cfg.human_provider, "$")
+        index, provider, _ = answering_account(self.cfg, human)
+        return await human.balance(index), HUMAN_CURRENCY.get(provider, "$")
 
     def today(self) -> dict[str, dict[str, float]]:
         return self.chain.state.daily.get(today(), {})

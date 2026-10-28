@@ -280,6 +280,26 @@ def test_human_line_without_a_main_key_names_the_spares(ctl):
     assert ctl.service.chain.layer("human").available()
 
 
+def test_check_human_without_a_main_key_reports_the_spare(ctl, monkeypatch):
+    from imnotarobot.layers.human import HumanLayer
+
+    asked = []
+
+    async def balance(self, index=0):
+        asked.append(index)
+        return 12.5
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    ctl.add_human_account("anticaptcha", "ac-secret-key-1234")
+    st = ctl.check_human()
+    assert st == {"ok": True, "balance": 12.5, "provider": "anticaptcha", "currency": "$", "rate": 80.0}
+    assert asked == [1]  # the main account has no key, the spare is the one that answers
+    # the low-balance threshold is in the main account's roubles: $12.5 is about 1000 ₽, not low
+    assert "low-balance" not in dict(ctl.alerts())
+    ctl.cfg.human_low_balance = 2000
+    assert dict(ctl.alerts())["low-balance"] == "На Anti-Captcha осталось $12.50 — пора пополнить."
+
+
 def test_notes_on_keys_survive_reload(ctl):
     ctl.set_human(note="основной, RuCaptcha")
     ctl.cfg.keys.append(config.KeyEntry(name="proxy", provider="custom"))
