@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 VERSION = re.search(r'__version__ = "(.+?)"', Path(SPECPATH, "../imnotarobot/__init__.py").read_text()).group(1)
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("ddddocr", "onnxruntime", "rumps", "WebKit", "patchright"):
+for pkg in ("ddddocr", "onnxruntime", "rumps", "WebKit", "ServiceManagement", "UserNotifications", "patchright"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

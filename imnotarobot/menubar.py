@@ -13,6 +13,7 @@ ICON = Path(__file__).with_name("assets") / "menubar.png"
 ALARM_ICON = Path(__file__).with_name("assets") / "menubar-alarm.png"
 ALARM_SOUND_EVERY = 30  # seconds
 UPDATE_CHECK_EVERY = 24 * 3600  # seconds
+PERMISSIONS_EVERY = 60  # seconds
 POPOVER_SIZE = (340, 470)
 
 
@@ -185,6 +186,7 @@ class MenuBarApp(rumps.App):
         controller.hooks["panel-size"] = lambda h: self._on_main(self.panel.resize, h)
         self._started = False
         self._alarm_sounded = 0.0
+        self._perm_checked = 0.0
         rumps.Timer(self.tick, 2).start()
         threading.Thread(target=self._check_human, daemon=True).start()
         threading.Thread(target=self._keep_companions, daemon=True).start()
@@ -245,6 +247,10 @@ class MenuBarApp(rumps.App):
                 self.open_window()
         self.notify_new_alerts()
         self.show_alarm()
+        if time.monotonic() - self._perm_checked >= PERMISSIONS_EVERY:
+            # on this thread the notification center answers; the window then shows what is off
+            self._perm_checked = time.monotonic()
+            self.c.refresh_permissions()
         job = self.c.bench
         self.title = f"{job['done']}/{job['total']}" if job.get("running") else None
 

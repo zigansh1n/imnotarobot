@@ -9,7 +9,9 @@ description = "I'm Not a Robot: a free-first captcha solver with a 2Captcha-comp
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = ["fastapi", "uvicorn", "httpx", "ddddocr", "pillow", "numpy", "python-multipart", "mcp>=2", "patchright",
-                "rumps; sys_platform == 'darwin'", "pyobjc-framework-WebKit; sys_platform == 'darwin'"]
+                "rumps; sys_platform == 'darwin'", "pyobjc-framework-WebKit; sys_platform == 'darwin'",
+                "pyobjc-framework-ServiceManagement; sys_platform == 'darwin'",
+                "pyobjc-framework-UserNotifications; sys_platform == 'darwin'"]
 
 [project.scripts]
 imnotarobot = "imnotarobot.__main__:main"

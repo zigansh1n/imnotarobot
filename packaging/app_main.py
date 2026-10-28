@@ -11,6 +11,9 @@ def selftest() -> int:
 
     import rumps  # noqa: F401
     import uvicorn  # noqa: F401
+    # the permission check talks to these, so the bundle must carry them
+    import ServiceManagement  # noqa: F401
+    import UserNotifications  # noqa: F401
 
     from imnotarobot import testset
     from imnotarobot.config import Config

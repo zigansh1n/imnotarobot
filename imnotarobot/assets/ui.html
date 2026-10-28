@@ -232,6 +232,7 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
   </aside>
   <main>
     <div class="banner warn" id="portNote" hidden></div>
+    <div class="banner warn" id="permNote" hidden></div>
     <div class="banner row" id="updateNote" hidden><span class="grow" id="updateText"></span><a id="updatePage" target="_blank">Что нового</a><button class="primary" id="updateBtn">Обновить</button></div>
 
     <section class="view on" id="v-today">
@@ -335,6 +336,10 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
           <label class="switch"><input type="checkbox" id="requireKey"><span></span></label></div>
         <div class="kv"><div><b>Запускать при входе</b><br><span class="mut">Начинает работать сразу после включения Мака.</span></div>
           <label class="switch"><input type="checkbox" id="login"><span></span></label></div>
+        <div class="kv" id="permBackground" hidden><div><b>Фоновая работа</b><br><span class="mut" id="permBackgroundText"></span></div>
+          <button data-pane="background">Открыть настройки</button></div>
+        <div class="kv" id="permNotifications" hidden><div><b>Уведомления</b><br><span class="mut" id="permNotificationsText"></span></div>
+          <button data-pane="notifications">Открыть настройки</button></div>
         <div class="kv" id="companionRow" hidden><div><b>Держать запущенным <span id="companionNames"></span></b><br><span class="mut">Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.</span></div>
           <label class="switch"><input type="checkbox" id="companionRestart"><span></span></label></div>
       </div>
@@ -475,6 +480,8 @@ const EN = {
   "работает": "works", "роутер": "router", "не проверен": "not checked", "Удалить запасной ключ?": "Remove the spare key?", "Держать запущенным": "Keep running",
   "Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.": "On: the app starts the program and opens it again if it was quit. Off: the app never starts it.",
   "Anti-Captcha · доллары": "Anti-Captcha · dollars",
+  "Разрешения macOS": "macOS permissions", "Фоновая работа": "Background work", "Уведомления": "Notifications",
+  "Открыть настройки": "Open Settings",
   "Скачать набор настоящих капч с Hugging Face (~36 МБ)? Лицензия не указана — только для личной проверки.": "Download a set of real captchas from Hugging Face (~36 MB)? No license is given, for personal testing only.",
   "цена неизвестна — поставщик её не публикует": "price unknown, the provider does not publish it", "цена неизвестна": "price unknown", "только что": "just now",
 };
@@ -627,6 +634,7 @@ function render(s) {
     st.solved ? (st.human ? `Люди понадобились ${st.human} раз из ${st.solved}.` : "Сегодня ни разу не понадобились люди.") : "Когда программа пришлёт капчу, она появится здесь.";
   $("freeShare").textContent = st.free; $("spent").textContent = st.spentText; $("avgSec").textContent = st.avg;
   $("portNote").hidden = !s.access.portNote; $("portNote").textContent = s.access.portNote;
+  renderPermissions(s.permissions);
   $("firstRun").hidden = s.keys.length > 0 || s.human.hasKey;
   renderUpdate(s.update);
 
@@ -801,6 +809,17 @@ function renderLimits(s) {
     (unpriced ? `<span>${esc(unpriced)}</span>` : "") + (rate ? `<span>${esc(rate)}</span>` : "");
 }
 
+// where macOS decides whether the app may run in the background and notify
+const PANES = {background: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+               notifications: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"};
+function renderPermissions(list) {
+  const warnings = list || [];
+  $("permNote").hidden = !warnings.length;
+  $("permNote").innerHTML = warnings.length ? "<b>Разрешения macOS</b>" + warnings.map(w =>
+    `<div class="row" style="margin:6px 0 0"><span class="grow">⚠ ${esc(w.text)}</span>
+     <button class="small" data-pane="${esc(w.id)}">Открыть настройки</button></div>`).join("") : "";
+}
+
 function renderConnect(s) {
   $("addr").textContent = s.address;
   $("clientKey").textContent = s.access.required ? s.access.key : "не требуется";
@@ -808,6 +827,9 @@ function renderConnect(s) {
   $("companionRow").hidden = !s.companions.apps.length;
   $("companionNames").textContent = s.companions.apps.join(", ");
   $("companionRestart").checked = s.companions.restart;
+  const warn = Object.fromEntries((s.permissions || []).map(w => [w.id, w.text]));
+  $("permBackground").hidden = !warn.background; $("permBackgroundText").textContent = warn.background || "";
+  $("permNotifications").hidden = !warn.notifications; $("permNotificationsText").textContent = warn.notifications || "";
   $("copyKey").disabled = $("newKey").disabled = !s.access.required;
   const key = s.access.required ? s.access.key : t("любой");
   const [pic, num, id] = LANG === "en" ? ["<base64 of the picture>", "<number from the answer>", "<id>"] : ["<base64 картинки>", "<номер из ответа>", "<номер>"];
@@ -938,6 +960,7 @@ document.addEventListener("click", async e => {
   if (t.id === "reportWrong") { if (await api("report-wrong", {id: +d.id}, t)) openEntry(d.id); return; }
   if (t.id === "confirmYes" || t.id === "confirmNo") return;
   if (t.id === "copyAddr") return api("copy-address", {}, t);
+  if (d.pane) return api("open-url", {url: PANES[d.pane] || ""});
   if (t.id === "copyKey") return api("copy-key", {}, t);
   if (t.id === "newKey") { if (await ask("Создать новый ключ доступа? Старый перестанет работать — его нужно будет заменить в ваших программах.", "Создать")) api("access", {regenerate: true}, t); return; }
   if (t.id === "checkConn") return api("check-connection", {}, t);

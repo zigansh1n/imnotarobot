@@ -251,6 +251,11 @@ EN: dict[str, str] = {
     "Набор удалён.": "Set removed.",
     "{name} теперь первая среди моделей.": "{name} is now the first model.",
     "неизвестное действие {action}": "unknown action {action}",
+    # macOS permissions
+    "macOS не разрешает приложению работать в фоне — после включения Мака оно не запустится.":
+        "macOS does not allow the app to run in the background — it will not start after the Mac is switched on.",
+    "Уведомления выключены — приложение не сможет предупредить о неполадках.":
+        "Notifications are off — the app cannot warn you about problems.",
     # test sets
     "Настоящие капчи с сайтов и приложений: текст, клики по иконкам и словам, задачи на смысл":
         "Real captchas from sites and apps: text, clicks on icons and words, reasoning tasks",

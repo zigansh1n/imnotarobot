@@ -93,6 +93,7 @@ def state(c: "Controller") -> dict[str, Any]:
     day = c.service.today()
     return {
         "paused": c.service.paused, "address": c.address, "startAtLogin": c.starts_at_login(),
+        "permissions": c.permission_warnings(),
         "today": {"solved": int(sum(v.get("solved", 0) for v in day.values())),
                   "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
         "layers": layers,
@@ -208,7 +209,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             return done(tr("Скачиваю версию {version}. Программа перезапустится сама.", version=c.update["version"]))
         if action == "open-url":
             url = str(b.get("url", ""))
-            if not url.startswith(("https://", "http://")):
+            if not url.startswith(("https://", "http://", "x-apple.systempreferences:")):
                 raise ValueError(tr("нужна ссылка"))
             subprocess.run(["open", url], check=False)
             return done("")
