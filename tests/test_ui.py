@@ -382,6 +382,46 @@ def test_a_model_ticked_but_off_in_the_path_is_marked_in_the_key_card(ui, monkey
     assert client.get("/api/ui/state").json()["keys"][0]["models"][0]["inPath"]
 
 
+def test_a_slow_keychain_does_not_freeze_captcha_traffic(ui, monkeypatch):
+    """A settings click saves behind the lock with real Keychain reads; the loop must keep serving captchas."""
+    import asyncio
+
+    import httpx
+
+    c, _ = ui
+    real_get = config.get_secret
+    asked = []
+
+    def slow_get(account):
+        asked.append(account)
+        time.sleep(0.3)  # what a Keychain subprocess really costs
+        return real_get(account)
+
+    monkeypatch.setattr(config, "get_secret", slow_get)
+    app = create_app(service=c.service)
+    add_ui_routes(app, c)
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+
+            async def traffic():
+                t0 = time.monotonic()
+                await asyncio.sleep(0.05)  # the save is mid-flight, its lock held
+                r = await client.post("/createTask", json={"clientKey": c.cfg.client_key,
+                                                          "task": {"type": "ImageToTextTask", "body": text_image("ab3k7")}})
+                return time.monotonic() - t0, r.json()
+
+            async def mutate():
+                return await client.post("/api/ui/toggle-layer", json={"id": "local"}, headers={"X-UI-Token": c.ui_token})
+
+            return await asyncio.gather(traffic(), mutate())
+
+    (elapsed, created), _ = asyncio.run(go())
+    assert asked and "local" not in c.cfg.layers  # the slow save really ran and the change landed
+    assert created["errorId"] == 0 and created["taskId"]
+    assert elapsed < 0.15  # answered while the save still held the lock, not after it
+
+
 def test_enabling_a_model_checks_it_in_the_background_and_switches_off_picture_rejectors(ui, monkeypatch):
     c, client = ui
     from imnotarobot.discovery import Detected, ModelInfo

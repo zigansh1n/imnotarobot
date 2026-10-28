@@ -135,6 +135,8 @@ def state(c: "Controller") -> dict[str, Any]:
 
 
 def add_ui_routes(app: FastAPI, c: "Controller") -> None:
+    from starlette.concurrency import run_in_threadpool
+
     def guard(request: Request) -> JSONResponse | None:
         if request.headers.get("x-ui-token") != c.ui_token:
             return JSONResponse({"ok": False, "error": tr("нет доступа")}, status_code=403)
@@ -147,10 +149,11 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             return {}
 
     def done(message: str, **extra) -> dict[str, Any]:
-        return {"ok": True, "message": message, "state": state(c), **extra}
+        # without the state: act() adds it off the event loop, so a slow save never stalls captcha traffic
+        return {"ok": True, "message": message, **extra}
 
-    def failed(e: Exception) -> JSONResponse:
-        return JSONResponse({"ok": False, "error": str(e), "state": state(c)}, status_code=400)
+    async def failed(e: Exception) -> JSONResponse:
+        return JSONResponse({"ok": False, "error": str(e), "state": await run_in_threadpool(state, c)}, status_code=400)
 
     @app.post("/app/open")
     async def open_from_another_app(request: Request):
@@ -193,20 +196,21 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             return denied
         b = await body(request)
         try:
-            return await run_action(action, b)
+            r = await run_action(action, b)
         except Exception as e:
-            return failed(e)
+            return await failed(e)
+        if isinstance(r, dict) and "state" not in r:
+            r["state"] = await run_in_threadpool(state, c)
+        return r
 
     async def run_action(action: str, b: dict[str, Any]) -> Any:
-        from starlette.concurrency import run_in_threadpool
-
         if action == "share-results":
             from . import share
 
             if not c.bench.get("rows"):
                 raise ValueError(tr("сначала сравните модели"))
             providers = {k.name: k.provider for k in c.cfg.keys}
-            subprocess.run(["open", share.issue_url(share.report(c.bench, providers))], check=False)
+            await run_in_threadpool(subprocess.run, ["open", share.issue_url(share.report(c.bench, providers))], check=False)
             return done(tr("Открыл заготовку на GitHub: проверьте и нажмите «Submit new issue»."))
         if action == "update":
             c.install_update()
@@ -215,7 +219,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             url = str(b.get("url", ""))
             if not url.startswith(("https://", "http://", "x-apple.systempreferences:")):
                 raise ValueError(tr("нужна ссылка"))
-            subprocess.run(["open", url], check=False)
+            await run_in_threadpool(subprocess.run, ["open", url], check=False)
             return done("")
         if action == "panel-size":
             hook = c.hooks.get("panel-size")
@@ -241,77 +245,80 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             entry = await run_in_threadpool(c.refresh_key, b["name"])
             return done(tr("Список моделей {name} обновлён: {n} с картинками.", name=entry.name, n=len(c.key_models(entry.name))))
         if action == "remove-key":
-            c.remove_key(b["name"])
+            await run_in_threadpool(c.remove_key, b["name"])
             return done(tr("Ключ {name} удалён вместе с его моделями.", name=b["name"]))
         if action == "toggle-model":
-            c.toggle_key_model(b["key"], b["model"])
+            await run_in_threadpool(c.toggle_key_model, b["key"], b["model"])
             on = any(m.key == b["key"] and m.model == b["model"] for m in c.cfg.models)
             if on:
                 c.check_model_health(b["key"], b["model"])
             return done(tr("{model}: включена." if on else "{model}: выключена.", model=b["model"]))
         if action == "manual-model":
-            entry = c.key(b["key"])
             model = b.get("model", "").strip()
             if not model:
                 raise ValueError(tr("впишите название модели"))
-            if not any(mid == model for mid, *_ in entry.models):
-                entry.models.append([model, True, 0.0, 0.0])
-            c.toggle_key_model(b["key"], model)
+
+            def add_manual():
+                with c._lock:
+                    entry = c.key(b["key"])
+                    if not any(mid == model for mid, *_ in entry.models):
+                        entry.models.append([model, True, 0.0, 0.0])
+                    c.toggle_key_model(b["key"], model)
+
+            await run_in_threadpool(add_manual)
             c.check_model_health(b["key"], model)
             return done(tr("{model} добавлена и включена.", model=model))
         if action == "toggle-layer":
-            c.toggle_layer(b["id"])
+            await run_in_threadpool(c.toggle_layer, b["id"])
             return done(tr("Слои обновлены."))
         if action == "move-layer":
-            c.move_layer(b["id"], int(b.get("step", 0)))
+            await run_in_threadpool(c.move_layer, b["id"], int(b.get("step", 0)))
             return done(tr("Порядок обновлён."))
         cur = HUMAN_CURRENCY.get(c.cfg.human_provider, "$")
         if action == "human-key":
             key = str(b.get("key") or "").strip()
             if not key:
                 raise ValueError(tr("вставьте ключ"))
-            c.set_human(key=key)
+            await run_in_threadpool(c.set_human, key=key)
             st = await run_in_threadpool(c.check_human)
             if not st["ok"]:
-                return JSONResponse({"ok": False, "error": tr("ключ сохранён, но {service} его не принял: {error}", service=c.cfg.human_provider, error=st["error"]),
-                                     "state": state(c)}, status_code=400)
+                raise ValueError(tr("ключ сохранён, но {service} его не принял: {error}", service=c.cfg.human_provider, error=st["error"]))
             return done(tr("Ключ работает, баланс {money}.", money=money(st["balance"], st.get("currency") or HUMAN_CURRENCY.get(c.cfg.human_provider, "$"))))
         if action == "human-note":
-            c.set_human(note=str(b.get("note") or ""))
+            await run_in_threadpool(c.set_human, note=str(b.get("note") or ""))
             return done(tr("Подпись сохранена."))
         if action == "spare-add":
-            account = c.add_human_account(str(b.get("provider") or ""), str(b.get("key") or ""), str(b.get("note") or ""))
+            account = await run_in_threadpool(c.add_human_account, str(b.get("provider") or ""), str(b.get("key") or ""), str(b.get("note") or ""))
             st = await run_in_threadpool(c.check_human_account, account.id)
             title = HUMAN_TITLES.get(account.provider, account.provider)
             if not st["ok"]:
-                return JSONResponse({"ok": False, "error": tr("ключ сохранён, но {service} его не принял: {error}", service=title, error=st["error"]),
-                                     "state": state(c)}, status_code=400)
+                raise ValueError(tr("ключ сохранён, но {service} его не принял: {error}", service=title, error=st["error"]))
             return done(tr("Запасной ключ {service} работает, баланс {money}.", service=title,
                            money=money(st["balance"], HUMAN_CURRENCY.get(account.provider, "$"))))
         if action == "spare-check":
             account = c.human_account(str(b.get("id") or ""))
             st = await run_in_threadpool(c.check_human_account, account.id)
             if not st["ok"]:
-                return JSONResponse({"ok": False, "error": st["error"], "state": state(c)}, status_code=400)
+                raise ValueError(st["error"])
             return done(tr("Баланс {money}.", money=money(st["balance"], HUMAN_CURRENCY.get(account.provider, "$"))))
         if action == "spare-note":
-            c.set_human_account_note(str(b.get("id") or ""), str(b.get("note") or ""))
+            await run_in_threadpool(c.set_human_account_note, str(b.get("id") or ""), str(b.get("note") or ""))
             return done(tr("Подпись сохранена."))
         if action == "spare-remove":
-            c.remove_human_account(str(b.get("id") or ""))
+            await run_in_threadpool(c.remove_human_account, str(b.get("id") or ""))
             return done(tr("Запасной ключ удалён."))
         if action == "key-note":
-            c.set_key_note(str(b.get("name") or ""), str(b.get("note") or ""))
+            await run_in_threadpool(c.set_key_note, str(b.get("name") or ""), str(b.get("note") or ""))
             return done(tr("Подпись сохранена."))
         if action == "companion-restart":
-            c.set_companion_restart(bool(b.get("on")))
+            await run_in_threadpool(c.set_companion_restart, bool(b.get("on")))
             return done(tr("{apps}: приложение держит запущенным.", apps=", ".join(c.cfg.companion_apps)) if c.cfg.companion_restart
                         else tr("{apps}: приложение больше не запускает само.", apps=", ".join(c.cfg.companion_apps)))
         if action == "human-remove-key":
-            c.set_human(key="")
+            await run_in_threadpool(c.set_human, key="")
             return done(tr("Ключ людей удалён, слой людей выключен."))
         if action == "human-provider":
-            c.set_human(provider=b["provider"])
+            await run_in_threadpool(c.set_human, provider=b["provider"])
             msg = tr("Сервис: {service}. Валюта: {currency}.", service=HUMAN_TITLES.get(c.cfg.human_provider), currency=HUMAN_CURRENCY.get(c.cfg.human_provider))
             if c.cfg.human_api_key:
                 st = await run_in_threadpool(c.check_human)
@@ -333,16 +340,20 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             human, low, cloud, rate = number("human"), number("low"), number("cloud"), number("rate")
             if rate is not None and rate <= 0:
                 raise ValueError(tr("курс должен быть больше нуля"))
-            with c._lock:
-                if human is not None:
-                    c.cfg.human_daily_limit = human
-                if low is not None:
-                    c.cfg.human_low_balance = low
-                if cloud is not None:
-                    c.cfg.cloud_daily_limit_usd = cloud
-                if rate is not None:
-                    c.cfg.rub_per_usd = rate
-                c._apply()
+
+            def apply_limits():
+                with c._lock:
+                    if human is not None:
+                        c.cfg.human_daily_limit = human
+                    if low is not None:
+                        c.cfg.human_low_balance = low
+                    if cloud is not None:
+                        c.cfg.cloud_daily_limit_usd = cloud
+                    if rate is not None:
+                        c.cfg.rub_per_usd = rate
+                    c._apply()
+
+            await run_in_threadpool(apply_limits)
             h = c.cfg.human_daily_limit
             def per_day(v, cur):
                 return tr("без лимита") if not v else tr("{money} в день", money=money(v, cur))
@@ -356,7 +367,7 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
         if action == "check-human":
             st = await run_in_threadpool(c.check_human)
             if not st["ok"]:
-                return JSONResponse({"ok": False, "error": st["error"], "state": state(c)}, status_code=400)
+                raise ValueError(st["error"])
             return done(tr("Баланс {money}.", money=money(st["balance"], st.get("currency") or cur)))
         if action == "pause":
             c.set_paused(bool(b.get("paused")))
@@ -365,11 +376,11 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             c.set_start_at_login(bool(b.get("on")))
             return done(tr("Будет запускаться при входе.") if c.starts_at_login() else tr("Автозапуск выключен."))
         if action == "bench-estimate":
-            specs = c.bench_specs(b.get("key"))
-            runs, usd = c.bench_estimate(specs)
+            specs = await run_in_threadpool(c.bench_specs, b.get("key"))
+            runs, usd = await run_in_threadpool(c.bench_estimate, specs)
             return done("", models=len(specs), runs=runs, usd=usd)
         if action == "bench-start":
-            c.start_bench(b.get("key"))
+            await run_in_threadpool(c.start_bench, b.get("key"))
             return done(tr("Сравнение запущено."))
         if action == "report-wrong":
             try:
@@ -378,18 +389,18 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
                 raise ValueError(tr("у этой капчи нет ответа, сообщать нечего"))
             return done(tr("Записал: этот слой на такой картинке больше не используется. Если решали люди — сервису отправлена жалоба."))
         if action == "copy-key":
-            subprocess.run(["pbcopy"], input=c.cfg.client_key.encode(), check=False)
+            await run_in_threadpool(subprocess.run, ["pbcopy"], input=c.cfg.client_key.encode(), check=False)
             return done(tr("Ключ доступа скопирован."))
         if action == "open-extension-folder":
             if not EXTENSION_DIR.is_dir():
                 raise ValueError(tr("в этой сборке нет папки расширения"))
-            subprocess.run(["open", "-R", str(EXTENSION_DIR)], check=False)
+            await run_in_threadpool(subprocess.run, ["open", "-R", str(EXTENSION_DIR)], check=False)
             return done(tr("Открыл папку расширения в Finder."))
         if action == "copy-address":
-            subprocess.run(["pbcopy"], input=c.address.encode(), check=False)
+            await run_in_threadpool(subprocess.run, ["pbcopy"], input=c.address.encode(), check=False)
             return done(tr("Адрес {address} скопирован.", address=c.address))
         if action == "access":
-            c.set_access(b.get("required"), bool(b.get("regenerate")))
+            await run_in_threadpool(c.set_access, b.get("required"), bool(b.get("regenerate")))
             if b.get("regenerate"):
                 return done(tr("Новый ключ доступа создан. Старый больше не работает — обновите его в своих программах."))
             return done(tr("Программы должны присылать ключ доступа.") if c.cfg.require_client_key
@@ -397,25 +408,25 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
         if action == "check-connection":
             r = await run_in_threadpool(c.check_connection)
             if not r["ok"]:
-                return JSONResponse({"ok": False, "error": tr("программа получила бы ошибку: {error}", error=r["error"]), "state": state(c)},
-                                    status_code=400)
+                raise ValueError(tr("программа получила бы ошибку: {error}", error=r["error"]))
             verdict = tr("ответ верный") if r["correct"] else tr("ответ неверный")
             return done(tr("Подключение работает: тестовую капчу решил слой «{layer}» за {seconds} с, {verdict}.", layer=r["layer"], seconds=r["seconds"], verdict=verdict))
         if action == "test-model":
             r = await run_in_threadpool(c.test_model, b["key"], b["model"])
             if r["error"] and not r["ok"]:
-                return JSONResponse({"ok": False, "error": f"{b['model']}: {r['error']}", "state": state(c)}, status_code=400)
+                raise ValueError(f"{b['model']}: {r['error']}")
             return done(tr("{model}: решено {ok} из {n}, в среднем {seconds} с на капчу.", model=b["model"], ok=r["ok"], n=r["n"], seconds=r["seconds"]))
         if action == "set-effort":
-            c.set_effort(b["key"], b["model"], b["kind"], b["level"])
+            await run_in_threadpool(c.set_effort, b["key"], b["model"], b["kind"], b["level"])
             what = tr("распознавания") if b["kind"] == "recognition" else tr("кликов")
             return done(tr("{model}: раздумья для {what} — {level}.", model=b["model"], what=what, level=EFFORT_TITLES[b["level"]]))
         if action == "bench-efforts-estimate":
-            specs = c.effort_specs(b["key"], b["model"])
-            runs, usd = c.bench_estimate(specs)
+            specs = await run_in_threadpool(c.effort_specs, b["key"], b["model"])
+            runs, usd = await run_in_threadpool(c.bench_estimate, specs)
             return done("", models=len(specs), runs=runs, usd=usd)
         if action == "bench-efforts":
-            c.start_bench(None, c.effort_specs(b["key"], b["model"]), label=tr("{model} на разных уровнях раздумий", model=b["model"]))
+            specs = await run_in_threadpool(c.effort_specs, b["key"], b["model"])
+            await run_in_threadpool(c.start_bench, None, specs, label=tr("{model} на разных уровнях раздумий", model=b["model"]))
             return done(tr("Сравнение уровней раздумий запущено."))
         if action == "bench-stop":
             c.stop_bench()
@@ -434,6 +445,6 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             c.remove_dataset(b["name"])
             return done(tr("Набор удалён."))
         if action == "use-best":
-            c.use_best(b["name"])
+            await run_in_threadpool(c.use_best, b["name"])
             return done(tr("{name} теперь первая среди моделей.", name=b["name"]))
         raise ValueError(tr("неизвестное действие {action}", action=action))
