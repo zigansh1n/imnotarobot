@@ -304,6 +304,26 @@ class Controller:
             self.human_account(account_id).note = note.strip()[:80]
             self._apply()
 
+    def promote_human_account(self, account_id: str) -> None:
+        """Makes a spare account the main one; the old main key, service and label take its place."""
+        with self._lock:
+            account = self.human_account(account_id)
+            main_key = config_mod.get_secret("human")
+            # the keys stay in the Keychain under their accounts: the two secrets just swap values
+            config_mod.set_secret("human", config_mod.get_secret(f"human:{account.id}"))
+            old = (self.cfg.human_provider, self.cfg.human_note, self.cfg.human_key_hint)
+            self.cfg.human_provider, self.cfg.human_note, self.cfg.human_key_hint = account.provider, account.note, account.hint
+            self.cfg.human_base_url = HUMAN_PRESETS.get(self.cfg.human_provider, "")
+            if main_key:
+                config_mod.set_secret(f"human:{account.id}", main_key)
+                account.provider, account.note, account.hint = old
+            else:  # no main key to swap in: the account's key has simply moved up
+                self.cfg.human_extra = [a for a in self.cfg.human_extra if a.id != account_id]
+                config_mod.set_secret(f"human:{account.id}", "")
+            self.human_status = {}
+            self.spare_status.pop(account_id, None)
+            self._apply()
+
     def check_human_account(self, account_id: str) -> dict:
         index = 1 + self.cfg.human_extra.index(self.human_account(account_id))
         human = self.service.chain.layer("human")

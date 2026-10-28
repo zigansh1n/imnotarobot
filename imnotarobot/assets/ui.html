@@ -30,7 +30,7 @@ button:hover, .button:hover { background: var(--line); }
 button:active { transform: scale(.98); }
 button.primary { background: var(--ink); color: var(--on-ink); }
 button.danger { color: var(--bad); background: transparent; }
-button.small { padding: 3px 9px; font-size: 12px; }
+button.small, .button.small { padding: 3px 9px; font-size: 12px; }
 button:disabled { opacity: .4; pointer-events: none; }
 input, select { font: inherit; color: var(--fg); background: var(--input); border: .5px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
 input:focus, select:focus { outline: 3px solid var(--glow); outline-offset: -1px; border-color: transparent; }
@@ -167,6 +167,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px; }
 th { text-align: left; color: var(--mut); font-weight: 500; padding: 6px 8px; border-bottom: .5px solid var(--line); }
 td { padding: 7px 8px; border-bottom: .5px solid var(--line2); vertical-align: top; }
 tr.click:hover td { background: var(--fill); }
+tr.day td { border-bottom: 0; color: var(--mut); font-size: 11px; letter-spacing: .07em; padding: 14px 8px 4px; text-transform: uppercase; }
 .bar { height: 4px; background: var(--fill); border-radius: 2px; overflow: hidden; margin: 8px 0; }
 .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--ink), #6d5dfc); transition: width .4s; }
 pre { background: var(--fill); border-radius: 10px; padding: 10px 12px; overflow: auto; font: 11.5px/1.5 ui-monospace, Menlo, monospace; margin: 6px 0 12px; white-space: pre-wrap; word-break: break-all; }
@@ -232,6 +233,7 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
   <symbol id="i-today" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
   <symbol id="i-path" viewBox="0 0 16 16"><path d="M2 8h12M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
   <symbol id="i-key" viewBox="0 0 16 16"><circle cx="5" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 8h6M12 8v3" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-human" viewBox="0 0 16 16"><circle cx="8" cy="4.6" r="2.7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.9 14c.7-3.1 2.7-4.6 5.1-4.6s4.4 1.5 5.1 4.6" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
   <symbol id="i-code" viewBox="0 0 16 16"><path d="M5 5l-3 3 3 3M11 5l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
   <symbol id="i-log" viewBox="0 0 16 16"><path d="M3 3h10M3 8h10M3 13h6" stroke="currentColor" stroke-width="1.4"/></symbol>
 </svg>
@@ -242,6 +244,7 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
     <div class="nav on" data-view="today"><svg><use href="#i-today"/></svg>Сегодня</div>
     <div class="nav" data-view="path"><svg><use href="#i-path"/></svg>Путь капчи</div>
     <div class="nav" data-view="keys"><svg><use href="#i-key"/></svg>Ключи и модели</div>
+    <div class="nav" data-view="humans"><svg><use href="#i-human"/></svg>Люди</div>
     <div class="nav" data-view="connect"><svg><use href="#i-code"/></svg>Подключение</div>
     <div class="nav" data-view="journal"><svg><use href="#i-log"/></svg>Журнал</div>
     <div class="foot" id="pauseBtn" title="Нажмите, чтобы поставить на паузу или продолжить"><span class="live" id="liveDot"></span><span id="statusText">…</span></div>
@@ -308,33 +311,6 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
       <div class="mut" id="detecting" style="margin-top:8px" hidden></div>
       <div id="keys"></div>
 
-      <div class="label">Люди</div>
-      <div class="panel">
-        <div class="row">
-          <div class="grow"><h2 id="humanTitle">RuCaptcha</h2>
-            <input class="note" id="humanNote" placeholder="Подпись: чей ключ, для чего" maxlength="80">
-            <div id="humanState" class="mut"></div></div>
-          <select id="humanProvider"><option value="rucaptcha">RuCaptcha · рубли</option><option value="2captcha">2Captcha · доллары</option><option value="anticaptcha">Anti-Captcha · доллары</option></select>
-        </div>
-        <form class="row" id="humanKeyForm" style="margin-top:12px">
-          <input class="grow" id="humanKey" type="password" placeholder="Новый ключ" autocomplete="off" required>
-          <button class="primary">Сохранить ключ</button>
-        </form>
-        <div class="row" style="margin-top:10px">
-          <button id="checkHuman">Проверить баланс</button><a class="button" id="topup" target="_blank">Пополнить</a>
-          <span class="grow"></span><button class="danger" id="removeHuman">Удалить ключ</button>
-        </div>
-        <div class="label" style="margin-top:16px">Запасные ключи</div>
-        <div class="mut" style="font-size:12px">Берут капчу по порядку, если основной не смог: нет денег, сервис не решает такой вид или не отвечает.</div>
-        <div id="spares"></div>
-        <form class="row" id="spareForm" style="margin-top:10px">
-          <select id="spareProvider"><option value="anticaptcha">Anti-Captcha</option><option value="2captcha">2Captcha</option><option value="rucaptcha">RuCaptcha</option></select>
-          <input class="grow" id="spareKey" type="password" placeholder="Ключ" autocomplete="off" required>
-          <input class="grow" id="spareNote" placeholder="Подпись" maxlength="80">
-          <button class="primary">Добавить</button>
-        </form>
-      </div>
-
       <div class="label">Сравнение моделей</div>
       <div class="panel">
         <div class="sub">Модели решают капчи с известными ответами, лучшая — сверху. Капч в наборе: <b id="benchCases"></b>.</div>
@@ -343,15 +319,77 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
       </div>
     </section>
 
+    <section class="view" id="v-humans">
+      <h1>Люди</h1>
+      <div class="sub">Последняя ступень: если модели и браузер не решили, капчу берут живые работники — платно, 10–60 секунд. Ключи хранятся в Связке ключей macOS.</div>
+      <div class="panel">
+        <div class="row"><span class="tag">1 · основной</span><h2 class="grow" id="humanTitle">RuCaptcha</h2>
+          <select id="humanProvider"><option value="rucaptcha">RuCaptcha · рубли</option><option value="2captcha">2Captcha · доллары</option><option value="anticaptcha">Anti-Captcha · доллары</option></select></div>
+        <input class="note" id="humanNote" placeholder="Подпись: чей ключ, для чего" maxlength="80">
+        <div id="humanState" class="mut"></div>
+        <form class="row" id="humanKeyForm" style="margin-top:12px">
+          <input class="grow" id="humanKey" type="password" placeholder="Новый ключ" autocomplete="off" required>
+          <button class="primary">Сохранить ключ</button>
+        </form>
+        <div class="row" style="margin-top:10px">
+          <button id="checkHuman">Проверить баланс</button><a class="button" id="topup" target="_blank">Пополнить</a>
+          <span class="grow"></span><button class="danger" id="removeHuman">Удалить ключ</button>
+        </div>
+      </div>
+      <div class="label">Запасные ключи</div>
+      <div class="mut" style="font-size:12px">Берут капчу по порядку, если основной не смог: нет денег, сервис не решает такой вид или не отвечает.</div>
+      <div id="spares"></div>
+      <form class="row" id="spareForm" style="margin-top:10px">
+        <select id="spareProvider"><option value="anticaptcha">Anti-Captcha</option><option value="2captcha">2Captcha</option><option value="rucaptcha">RuCaptcha</option></select>
+        <input class="grow" id="spareKey" type="password" placeholder="Ключ" autocomplete="off" required>
+        <input class="grow" id="spareNote" placeholder="Подпись" maxlength="80">
+        <button class="primary">Добавить</button>
+      </form>
+    </section>
+
     <section class="view" id="v-connect">
       <h1>Подключение</h1>
       <div class="sub">Приложение понимает API 2Captcha и RuCaptcha. В своей программе поменяйте адрес сервиса на этот, а ключ — на ключ доступа.</div>
+
+      <div class="label">Для программ</div>
       <div class="panel">
         <div class="kv"><div><b>Адрес</b><br><span class="mono" id="addr"></span></div><button id="copyAddr">Скопировать</button></div>
         <div class="kv"><div><b>Ключ доступа</b><br><span class="mono" id="clientKey"></span></div>
           <div class="row"><button id="copyKey">Скопировать</button><button id="newKey">Новый</button></div></div>
         <div class="kv"><div><b>Требовать ключ</b><br><span class="mut">Без ключа любая программа на этом Маке сможет тратить ваши деньги.</span></div>
           <label class="switch"><input type="checkbox" id="requireKey"><span></span></label></div>
+        <details><summary>Примеры запросов</summary>
+          <div class="label" style="margin-top:12px">Новый API</div><pre id="exampleV2"></pre>
+          <div class="label" style="margin-top:0">Старый API</div><pre id="exampleV1"></pre>
+        </details>
+        <button id="checkConn" style="margin-top:6px">Проверить подключение</button>
+      </div>
+
+      <div class="label">Агенты (MCP)</div>
+      <div class="panel">
+        <div class="sub">ИИ-агенты — Claude, Cursor и другие — решают капчи через это приложение по MCP. Добавьте сервер в настройки агента: он сам найдёт запущенную программу, ключ доступа не нужен. При установке через pip команда — imnotarobot-mcp.</div>
+        <div class="kv"><div><b>Конфигурация для настроек агента</b><br><span class="mono" id="mcpConfig"></span></div>
+          <button id="copyMcp">Скопировать</button></div>
+      </div>
+
+      <div class="label">Антидетект-браузеры</div>
+      <div class="panel">
+        <div class="sub">DataDome и Arkose FunCaptcha решаются в открытом профиле антидетект-браузера на этом Маке: пришлите задачу DataDomeSliderTask или FunCaptchaTask с полем cdpEndpoint — адресом DevTools открытого профиля. Принимаются только локальные адреса: 127.0.0.1, ::1 или localhost.</div>
+        <div class="kv"><div><b>Пример запроса</b><pre id="cdpExample" style="margin:6px 0 0"></pre></div>
+          <button id="copyCdp">Скопировать пример</button></div>
+      </div>
+
+      <div class="label">Расширение для браузера</div>
+      <div class="panel">
+        <div class="sub">Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.</div>
+        <div class="kv"><div><b>Папка расширения</b><br><span class="mut">Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.</span></div>
+          <button id="showExt">Показать папку</button></div>
+        <div class="kv"><div><b>Ключ доступа</b><br><span class="mut">Вставьте его в настройках расширения один раз. Приложение расширение найдёт само: оно проверяет 127.0.0.1 на портах 8765–8774.</span></div>
+          <button id="copyKeyExt">Скопировать ключ</button></div>
+      </div>
+
+      <div class="label">Приложение</div>
+      <div class="panel">
         <div class="kv"><div><b>Запускать при входе</b><br><span class="mut">Начинает работать сразу после включения Мака.</span></div>
           <label class="switch"><input type="checkbox" id="login"><span></span></label></div>
         <div class="kv" id="permBackground" hidden><div><b>Фоновая работа</b><br><span class="mut" id="permBackgroundText"></span></div>
@@ -361,19 +399,6 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
         <div class="kv" id="companionRow" hidden><div><b>Держать запущенным <span id="companionNames"></span></b><br><span class="mut">Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.</span></div>
           <label class="switch"><input type="checkbox" id="companionRestart"><span></span></label></div>
       </div>
-      <div class="label">Расширение для браузера</div>
-      <div class="panel">
-        <div class="sub">Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.</div>
-        <div class="kv"><div><b>Папка расширения</b><br><span class="mut">Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.</span></div>
-          <button id="showExt">Показать папку</button></div>
-        <div class="kv"><div><b>Ключ доступа</b><br><span class="mut">Вставьте его в настройках расширения один раз. Приложение расширение найдёт само: оно проверяет 127.0.0.1 на портах 8765–8774.</span></div>
-          <button id="copyKeyExt">Скопировать ключ</button></div>
-      </div>
-      <details><summary>Примеры запросов</summary>
-        <div class="label" style="margin-top:12px">Новый API</div><pre id="exampleV2"></pre>
-        <div class="label" style="margin-top:0">Старый API</div><pre id="exampleV1"></pre>
-      </details>
-      <button id="checkConn" style="margin-top:6px">Проверить подключение</button>
     </section>
 
     <section class="view" id="v-journal">
@@ -466,11 +491,18 @@ const EN = {
   "картинки, сетки, клики": "pictures, grids, clicks", "нет ключа": "no key", "нужен Google Chrome": "needs Google Chrome",
   "Вставьте ключ — поставщик и модели определятся сами. Ключи хранятся в Связке ключей macOS.": "Paste a key: the provider and models are detected by themselves. Keys are kept in the macOS Keychain.",
   "Ключ API": "API key", "Адрес посредника — если есть": "Reseller address, if any", "Добавить": "Add", "Люди": "Humans",
+  "Последняя ступень: если модели и браузер не решили, капчу берут живые работники — платно, 10–60 секунд. Ключи хранятся в Связке ключей macOS.":
+    "The last step: when models and the browser could not, human workers take the captcha — paid, 10–60 seconds. Keys are kept in the macOS Keychain.",
+  "основной": "main", "запасной": "spare", "Сделать основным": "Make main", "Пока ни одного.": "None yet.",
+  "Сменить сервис людей? Сохранённый ключ, скорее всего, подходит только прежнему сервису.":
+    "Change the workers' service? The saved key most likely fits only the old service.",
+  "Сменить": "Change",
   "RuCaptcha · рубли": "RuCaptcha · roubles", "2Captcha · доллары": "2Captcha · dollars", "Новый ключ": "New key", "Сохранить ключ": "Save key",
   "Проверить баланс": "Check balance", "Пополнить": "Top up", "Удалить ключ": "Remove key", "Сравнение моделей": "Model comparison",
   "Модели решают капчи с известными ответами, лучшая — сверху. Капч в наборе:": "Models solve captchas with known answers, the best on top. Captchas in the set:",
   "Наборы настоящих капч": "Sets of real captchas", "Проверить": "Test", "Выключить": "Turn off", "Раздумья: текст и сетки": "Thinking: text and grids",
   "клики": "clicks", "Сравнить уровни": "Compare levels", "поставщик не принимает эту настройку": "the provider ignores this setting",
+  "Тонкая настройка": "Fine tuning",
   "не проверена": "not tested", "Отметьте модели ниже — они встанут в путь капчи.": "Tick models below, they join the captcha path.",
   "в пути выключена": "off in the path", "включите её в разделе «Путь капчи»": "switch it on in «Captcha path»",
   "Все модели с картинками": "All vision models", "Найти модель": "Find a model", "Список недоступен — впишите название вручную.": "The list is unavailable, enter a name by hand.",
@@ -485,6 +517,15 @@ const EN = {
   "Без ключа любая программа на этом Маке сможет тратить ваши деньги.": "Without it, any program on this Mac can spend your money.",
   "Запускать при входе": "Start at login", "Начинает работать сразу после включения Мака.": "Starts working as soon as the Mac is on.",
   "Примеры запросов": "Request examples", "Новый API": "New API", "Старый API": "Old API", "Проверить подключение": "Check the connection",
+  "Для программ": "For programs",
+  "Агенты (MCP)": "Agents (MCP)",
+  "ИИ-агенты — Claude, Cursor и другие — решают капчи через это приложение по MCP. Добавьте сервер в настройки агента: он сам найдёт запущенную программу, ключ доступа не нужен. При установке через pip команда — imnotarobot-mcp.":
+    "AI agents — Claude, Cursor and others — solve captchas through this app over MCP. Add the server to the agent's settings: it finds the running app by itself, no access key needed. With a pip install the command is imnotarobot-mcp.",
+  "Конфигурация для настроек агента": "Configuration for the agent's settings",
+  "Антидетект-браузеры": "Anti-detect browsers",
+  "DataDome и Arkose FunCaptcha решаются в открытом профиле антидетект-браузера на этом Маке: пришлите задачу DataDomeSliderTask или FunCaptchaTask с полем cdpEndpoint — адресом DevTools открытого профиля. Принимаются только локальные адреса: 127.0.0.1, ::1 или localhost.":
+    "DataDome and Arkose FunCaptcha are solved in an open anti-detect browser profile on this Mac: send a DataDomeSliderTask or FunCaptchaTask with cdpEndpoint — the DevTools address of the open profile. Only local addresses are accepted: 127.0.0.1, ::1 or localhost.",
+  "Пример запроса": "Request example", "Скопировать пример": "Copy the example", "Приложение": "App",
   "Расширение для браузера": "Browser extension",
   "Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.":
     "Captchas on open pages get solved by themselves, no clicking: Chrome and Chromium-based anti-detect browsers.",
@@ -498,6 +539,7 @@ const EN = {
   "не требуется": "not required", "любой": "any",
   "Нажмите на строку, чтобы увидеть картинку, ответ и путь по ступеням. Хранятся последние 300.": "Click a row to see the picture, the answer and the path through the steps. The last 300 are kept.",
   "Все": "All", "Не решённые": "Unsolved", "«Не уверен»": "«Unsure»", "Отмеченные неверными": "Marked wrong", "Статистика": "Statistics",
+  "Вчера": "Yesterday", "Почему не решена": "Why it was not solved",
   "По дням": "By day", "Кто как решает — по отметкам «ответ неверный»": "Who solves how — by «wrong answer» marks",
   "Когда": "When", "Вид": "Kind", "Кто решил": "Solved by", "Ответ": "Answer", "Уверенность": "Confidence", "Секунд": "Seconds",
   "не решена": "unsolved", "не уверен": "unsure", "неверно": "wrong", "Под фильтр ничего не попало.": "Nothing matches the filter.",
@@ -551,6 +593,8 @@ const RULES = [
   [/^([\d.,]+) с$/, "$1 s"],
   [/^Моделей: (\d+), решений: (\d+), (.+)\. Запустить сравнение\?$/, (m, a, b, c) => `Models: ${a}, runs: ${b}, ${t(c)}. Start the comparison?`],
   [/^примерно (.+)$/, "about $1"], [/^Удалить ключ (.+) и его модели\?$/, "Remove key $1 and its models?"],
+  [/^Удалить набор «(.+)»\?$/, (m, a) => `Remove the «${a}» set?`],
+  [/^(.+): не дождался ответа за ([\d.,]+) с$/, (m, a, b) => `${t(a)}: no answer in ${b} s`],
   [/^Прогнать (.+) на 4 уровнях раздумий: решений (\d+), (.+)\. Запустить\?$/, (m, a, b, c) => `Run ${a} at 4 thinking levels: ${b} runs, ${t(c)}. Start?`],
   [/^(.+): ответ принят \((\d+)%\)$/m, "$1: answer accepted ($2%)"],
   [/^Вышла версия (\S+)( — обновить)?$/, (m, v, u) => `Version ${v} is out${u ? " — update" : ""}`],
@@ -586,7 +630,7 @@ function toast(text, bad) {
   clearTimeout(toast.h); toast.h = setTimeout(() => box.className = "", bad ? 7000 : 3000);
 }
 
-async function api(action, body, button) {
+async function api(action, body, button, silent) {
   if (button) { button.disabled = true; button.dataset.text = button.textContent; button.innerHTML = '<span class="spinner"></span>'; }
   try {
     const r = await fetch(action === "state" ? "/api/ui/state" : "/api/ui/" + action, {
@@ -596,8 +640,8 @@ async function api(action, body, button) {
     });
     const j = await r.json();
     if (j.state) render(j.state); else if (action === "state" && r.ok) render(j);
-    if (!r.ok || j.ok === false) { if (action !== "state") toast(j.error || "Не получилось", true); return null; }
-    if (j.message) toast(j.message);
+    if (!r.ok || j.ok === false) { if (action !== "state" && !silent) toast(j.error || "Не получилось", true); return null; }
+    if (j.message && !silent) toast(j.message);
     return j;
   } catch (e) { if (action !== "state") toast("Нет связи с приложением", true); return null; }
   finally { if (button) { button.disabled = false; button.textContent = button.dataset.text; } }
@@ -627,9 +671,19 @@ document.addEventListener("keydown", e => {
   }
 });
 
+// balances are refreshed when the Humans view opens, at most once a minute
+let balancesAt = 0;
+function refreshBalances() {
+  if (!S || Date.now() - balancesAt < 60000) return;
+  balancesAt = Date.now();
+  if (S.human.hasKey || S.human.spares.length) api("check-human", {}, null, true);
+  S.human.spares.forEach(a => api("spare-check", {id: a.id}, null, true));
+}
+
 function show(view) {
   document.querySelectorAll(".nav").forEach(n => n.classList.toggle("on", n.dataset.view === view));
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === "v-" + view));
+  if (view === "humans") refreshBalances();
   try { localStorage.setItem("view", view); } catch (e) {}
 }
 if (!POP) { const v = P.get("open") || (() => { try { return localStorage.getItem("view"); } catch (e) { return null; } })(); if (v && $("v-" + v)) show(v); }
@@ -731,6 +785,7 @@ function render(s) {
   renderBench(s.bench);
   renderJournal(s.recent);
   renderStats(s.stats);
+  if ($("v-humans").classList.contains("on")) refreshBalances();
   translateDom($("app"));
 }
 
@@ -856,11 +911,14 @@ function cleanupDrag() {
 
 // the list is redrawn on every refresh; a list the user opened stays open
 const openModelLists = new Set();
+// the same for the fine-tuning disclosure of each model row
+const openFineTunes = new Set();
 // toasts raised by background jobs are shown once each
 const shownToasts = new Set();
 document.addEventListener("toggle", e => {
-  const name = e.target.dataset?.modelsOf;
-  if (name !== undefined) e.target.open ? openModelLists.add(name) : openModelLists.delete(name);
+  const models = e.target.dataset?.modelsOf, fine = e.target.dataset?.fineOf;
+  if (models !== undefined) e.target.open ? openModelLists.add(models) : openModelLists.delete(models);
+  if (fine !== undefined) e.target.open ? openFineTunes.add(fine) : openFineTunes.delete(fine);
 }, true);
 function renderKeys(s) {
   $("detecting").hidden = !s.detecting; $("detecting").innerHTML = s.detecting ? `<span class="spinner"></span> ${esc(s.detecting)}…` : "";
@@ -879,9 +937,10 @@ function renderKeys(s) {
       return `<div class="enabled-model"><b title="${esc(id)}">${esc(modelName(id))}</b>${modelNote(id) ? `<span class="mut" style="font-size:12px">${esc(modelNote(id))}</span>` : ""}${off}${test}${error}<span class="grow"></span>
         <button class="small" data-test="${esc(k.name)}" data-model="${esc(id)}">Проверить</button>
         <button class="small" data-off="${esc(k.name)}" data-model="${esc(id)}">Выключить</button></div>
-        <div class="row" style="gap:14px;padding:2px 0 8px">${pick("recognition", "Раздумья: текст и сетки")}${pick("clicks", "клики")}
+        <details data-fine-of="${esc(name)}" ${openFineTunes.has(name) ? "open" : ""}><summary>Тонкая настройка</summary>
+        <div class="row" style="gap:14px;padding:2px 0 6px">${pick("recognition", "Раздумья: текст и сетки")}${pick("clicks", "клики")}
         <button class="small" data-efforts="${esc(k.name)}" data-model="${esc(id)}">Сравнить уровни</button>
-        ${ef.unsupported ? '<span class="mut" style="font-size:12px">поставщик не принимает эту настройку</span>' : ""}</div>`;
+        ${ef.unsupported ? '<span class="mut" style="font-size:12px">поставщик не принимает эту настройку</span>' : ""}</div></details>`;
     }).join("");
     const all = k.models.map(m => `<label class="chip" title="${esc(m.id)}"><input type="checkbox" data-key="${esc(k.name)}" data-toggle="${esc(m.id)}" ${m.enabled ? "checked" : ""}>${esc(modelName(m.id))}${modelNote(m.id) ? `<small>${esc(modelNote(m.id))}</small>` : ""}</label>`).join("");
     return `<div class="key"><div class="row"><b class="grow">${esc(k.name)} <span class="mono mut">${esc(k.hint)}</span></b>
@@ -916,17 +975,19 @@ function renderHuman(s) {
   $("checkHuman").disabled = !h.hasKey && !h.spares.length;
   const box = $("spares");
   if (box.contains(document.activeElement)) return;
-  box.innerHTML = h.spares.map(a => {
+  // the accounts are numbered in the order they are used: the main one first, then the spares
+  box.innerHTML = h.spares.map((a, i) => {
     const st = a.status || {};
     const state = st.ok ? `<span class="tag good">работает</span> баланс <b>${money(st.balance, a.currency)}</b>` :
       st.error ? `<span class="tag bad">ошибка</span> ${esc(st.error)}` : '<span class="tag">не проверен</span>';
-    return `<div class="key"><div class="row"><b class="grow">${esc(a.title)} <span class="mono mut">${esc(a.hint)}</span></b>
+    return `<div class="key"><div class="row"><span class="tag">${i + 2} · запасной</span><b class="grow">${esc(a.title)} <span class="mono mut">${esc(a.hint)}</span></b>
         <button class="small" data-spare-check="${esc(a.id)}">Проверить</button>
         ${a.topup ? `<a class="button small" href="${esc(a.topup)}" target="_blank">Пополнить</a>` : ""}
+        <button class="small" data-spare-main="${esc(a.id)}">Сделать основным</button>
         <button class="small danger" data-spare-remove="${esc(a.id)}">Удалить</button></div>
       <input class="note" data-note-spare="${esc(a.id)}" value="${esc(a.note || "")}" placeholder="Подпись: чей ключ, для чего" maxlength="80">
       <div class="mut" style="font-size:12px">${state}</div></div>`;
-  }).join("");
+  }).join("") || '<div class="empty">Пока ни одного.</div>';
 }
 
 function renderTiles(t) {
@@ -1013,6 +1074,8 @@ function renderPermissions(list) {
      <button class="small" data-pane="${esc(w.id)}">Открыть настройки</button></div>`).join("") : "";
 }
 
+// snippets the window offers to copy: the agent config and the anti-detect example
+const connSnippets = {mcp: "", cdp: ""};
 function renderConnect(s) {
   $("addr").textContent = s.address;
   $("clientKey").textContent = s.access.required ? s.access.key : "не требуется";
@@ -1028,6 +1091,10 @@ function renderConnect(s) {
   const [pic, num, id] = LANG === "en" ? ["<base64 of the picture>", "<number from the answer>", "<id>"] : ["<base64 картинки>", "<номер из ответа>", "<номер>"];
   $("exampleV2").textContent = `POST ${s.address}/createTask\n{"clientKey": "${key}", "task": {"type": "ImageToTextTask", "body": "${pic}"}}\n\nPOST ${s.address}/getTaskResult\n{"clientKey": "${key}", "taskId": ${num}}`;
   $("exampleV1").textContent = `POST ${s.address}/in.php   key=${key}&method=base64&body=<base64>&json=1\nGET  ${s.address}/res.php?key=${key}&action=get&id=${id}&json=1`;
+  $("mcpConfig").textContent = connSnippets.mcp =
+    `{"mcpServers": {"imnotarobot": {"command": "${s.mcp.command}"${s.mcp.args.length ? `, "args": ["${s.mcp.args.join('", "')}"]` : ""}}}}`;
+  $("cdpExample").textContent = connSnippets.cdp =
+    `POST ${s.address}/createTask\n{"clientKey": "${key}", "task": {"type": "DataDomeSliderTask", "websiteURL": "https://example.com", "cdpEndpoint": "http://127.0.0.1:9222"}}`;
 }
 
 function renderDatasets(list) {
@@ -1066,14 +1133,35 @@ function renderBench(b) {
       <button id="shareResults" title="Откроет на GitHub заготовку с названиями моделей и точностью — без ключей и картинок">Поделиться результатами</button>${again}</div>`;
 }
 
+// older journal entries carry doubled step names and raw Playwright timeouts; the display cleans them up
+function cleanNote(line) {
+  let s = String(line).trim();
+  s = s.replace(/^([^:;]+?): *\1: */i, "$1: ").replace(/^([^:;]+?): *: */, "$1: ");
+  return s.replace(/Timeout (\d+)ms exceeded\.?/, (m, ms) => `не дождался ответа за ${dec(String(+ms / 1000))} с`);
+}
+
+function dayTitle(at) {
+  const d = new Date(at * 1000), now = new Date();
+  const days = (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000;
+  return days === 0 ? "Сегодня" : days === 1 ? "Вчера" : d.toLocaleDateString(LOCALE(), {day: "numeric", month: "long"});
+}
+
 function renderJournal(rows) {
   const f = $("journalFilter").value;
-  const list = rows.filter(r => !f || (f === "error" && r.error) || (f === "low" && r.lowConfidence) || (f === "reported" && r.reported));
-  $("recent").innerHTML = list.length ? `<table><tr><th>Когда</th><th>Вид</th><th>Кто решил</th><th>Ответ</th><th>Уверенность</th><th>Секунд</th></tr>` +
-    list.map(r => `<tr class="click" data-entry="${r.id}"><td class="num">${new Date(r.at * 1000).toLocaleTimeString(LOCALE())}</td><td>${esc(r.typeTitle)}</td>
+  const list = rows.filter(r => !f || (f === "error" && r.error) || (f === "low" && r.lowConfidence) || (f === "reported" && r.reported))
+    .sort((a, b) => (b.at - a.at) || (b.id - a.id));
+  let body = "", day = null;
+  for (const r of list) {
+    const d = dayTitle(r.at);
+    if (d !== day) { day = d; body += `<tr class="day"><td colspan="6">${esc(t(d))}</td></tr>`; }
+    // a failure gets one short line per step
+    const fail = r.error ? r.error.split("; ").map(l => `<span class="mut">${esc(t(cleanNote(l)).slice(0, 80))}</span>`).join("<br>") : esc(r.answer);
+    body += `<tr class="click" data-entry="${r.id}"><td class="num">${hhmm(r.at)}</td><td>${esc(r.typeTitle)}</td>
       <td>${r.error ? '<span class="tag bad">не решена</span>' : esc(shortOf(r.layer, r.layerTitle))}${r.lowConfidence ? ' <span class="tag warn">не уверен</span>' : ""}${r.reported ? ' <span class="tag bad">неверно</span>' : ""}</td>
-      <td class="mono">${r.error ? `<span class="mut">${esc(r.error).slice(0, 80)}</span>` : esc(r.answer)}</td>
-      <td>${r.error ? "" : Math.round(r.confidence * 100) + "%"}</td><td class="num">${r.seconds}</td></tr>`).join("") + "</table>"
+      <td class="mono">${fail}</td>
+      <td>${r.error ? "" : Math.round(r.confidence * 100) + "%"}</td><td class="num">${r.seconds}</td></tr>`;
+  }
+  $("recent").innerHTML = list.length ? `<table><tr><th>Когда</th><th>Вид</th><th>Кто решил</th><th>Ответ</th><th>Уверенность</th><th>Секунд</th></tr>` + body + "</table>"
     : `<div class="empty">${rows.length ? "Под фильтр ничего не попало." : "Пока ни одной. Когда программа пришлёт капчу, она появится здесь."}</div>`;
 }
 
@@ -1129,8 +1217,10 @@ async function openEntry(id) {
     <p class="mut">${new Date(s.at * 1000).toLocaleString(LOCALE())} · ${s.seconds} с${s.cost ? " · " + s.cost.toFixed(4) : ""}</p>
     ${imgs || '<p class="mut">Картинки нет: такую капчу решают на странице сайта.</p>'}
     ${params ? `<table>${params}</table>` : ""}
-    <div class="label">Ответ</div>${e.solution ? `<div class="answer">${esc(s.answer)}</div><details><summary>Как его получила программа</summary><pre>${esc(JSON.stringify(e.solution, null, 1))}</pre></details>` : `<pre>${esc(s.error)}</pre>`}
-    <div class="label">Путь по ступеням</div><pre>${esc([...(s.notes || []), s.error ? "" : t(`${s.layerTitle || s.layer}: ответ принят (${Math.round(s.confidence * 100)}%)`)].filter(Boolean).join("\n") || "—")}</pre>
+    ${e.solution ? `<div class="label">Ответ</div><div class="answer">${esc(s.answer)}</div><details><summary>Как его получила программа</summary><pre>${esc(JSON.stringify(e.solution, null, 1))}</pre></details>`
+      : `<div class="label">Почему не решена</div><pre>${esc(s.error.split("; ").map(l => t(cleanNote(l))).join("\n"))}</pre>`}
+    <div class="label">Путь по ступеням</div><pre>${esc([...(s.notes?.length ? s.notes : s.error ? s.error.split("; ") : []).map(l => t(cleanNote(l))),
+      ...(e.solution ? [t(`${s.layerTitle || s.layer}: ответ принят (${Math.round(s.confidence * 100)}%)`)] : [])].join("\n") || "—")}</pre>
     ${e.solution && !s.reported ? `<div class="row"><button class="danger" id="reportWrong" data-id="${s.id}">Ответ неверный</button>
       <span class="mut grow">Ступень больше не будет решать эту картинку; если решали люди — сервису уйдёт жалоба.</span></div>` : s.reported ? '<span class="tag bad">отмечен неверным</span>' : ""}`;
   translateDom($("entryCard"));
@@ -1163,6 +1253,8 @@ document.addEventListener("click", async e => {
   if (t.id === "reportWrong") { if (await api("report-wrong", {id: +d.id}, t)) openEntry(d.id); return; }
   if (t.id === "confirmYes" || t.id === "confirmNo") return;
   if (t.id === "copyAddr") return api("copy-address", {}, t);
+  if (t.id === "copyMcp") return api("copy", {text: connSnippets.mcp}, t);
+  if (t.id === "copyCdp") return api("copy", {text: connSnippets.cdp}, t);
   if (d.pane) return api("open-url", {url: PANES[d.pane] || ""});
   if (t.id === "copyKey") return api("copy-key", {}, t);
   if (t.id === "copyKeyExt") return api("copy-key", {}, t);
@@ -1178,6 +1270,7 @@ document.addEventListener("click", async e => {
   if (t.id === "tilesRemove") { if (await ask("Удалить модель клеток? Сетки reCAPTCHA снова будет решать облачная модель.", "Удалить")) api("tiles-remove", {}, t); return; }
   if (d.spareCheck) return api("spare-check", {id: d.spareCheck}, t);
   if (d.spareRemove) { if (await ask("Удалить запасной ключ?", "Удалить")) api("spare-remove", {id: d.spareRemove}, t); return; }
+  if (d.spareMain) return api("spare-promote", {id: d.spareMain}, t);
   if (d.refresh) return api("refresh-key", {name: d.refresh}, t);
   if (d.remove) { if (await ask(`Удалить ключ ${d.remove} и его модели?`, "Удалить")) return api("remove-key", {name: d.remove}, t); return; }
   if (d.bench) return startBench(d.bench, t);
@@ -1192,8 +1285,20 @@ document.addEventListener("click", async e => {
   }
   if (d.off) return api("toggle-model", {key: d.off, model: d.model}, t);
   if (d.dsget) { if (await ask("Скачать набор настоящих капч с Hugging Face (~36 МБ)? Лицензия не указана — только для личной проверки.", "Скачать")) api("dataset-download", {name: d.dsget}, t); return; }
-  if (d.dsremove) return api("dataset-remove", {name: d.dsremove}, t);
+  if (d.dsremove) {
+    const title = S.datasets.find(x => x.name === d.dsremove)?.title || d.dsremove;
+    if (await ask(`Удалить набор «${title}»?`, "Удалить")) api("dataset-remove", {name: d.dsremove}, t);
+  }
 });
+// a saved key usually belongs to one service: switching the select needs a confirming look
+async function changeHumanProvider(sel) {
+  if (S.human.hasKey && sel.value !== S.human.provider &&
+      !await ask("Сменить сервис людей? Сохранённый ключ, скорее всего, подходит только прежнему сервису.", "Сменить")) {
+    sel.value = S.human.provider;
+    return;
+  }
+  api("human-provider", {provider: sel.value});
+}
 document.addEventListener("change", e => {
   const t = e.target;
   if (t.dataset.layer) return api("toggle-layer", {id: t.dataset.layer});
@@ -1201,7 +1306,7 @@ document.addEventListener("change", e => {
   if (t.dataset.effort) return api("set-effort", {key: t.dataset.key, model: t.dataset.model, kind: t.dataset.effort, level: t.value});
   if (t.id === "login") return api("login", {on: t.checked});
   if (t.id === "requireKey") return api("access", {required: t.checked});
-  if (t.id === "humanProvider") return api("human-provider", {provider: t.value});
+  if (t.id === "humanProvider") return changeHumanProvider(t);
   if (t.id === "humanNote") return api("human-note", {note: t.value});
   if (t.dataset.noteSpare) return api("spare-note", {id: t.dataset.noteSpare, note: t.value});
   if (t.dataset.noteKey) return api("key-note", {name: t.dataset.noteKey, note: t.value});

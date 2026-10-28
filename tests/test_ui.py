@@ -1,3 +1,4 @@
+import os
 import time
 
 import pytest
@@ -466,3 +467,84 @@ def test_extension_folder_is_revealed_in_finder(ui, monkeypatch, tmp_path):
     assert calls == [["open", "-R", str(tmp_path / "extension")]]
     monkeypatch.setattr(ui_mod, "EXTENSION_DIR", tmp_path / "nowhere")
     assert client.post("/api/ui/open-extension-folder", json={}).status_code == 400
+
+
+def test_a_spare_key_can_be_made_the_main_one(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.layers.human import HumanLayer
+
+    async def balance(self, index=0):
+        return 21.0
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    client.post("/api/ui/human-key", json={"key": "ru-main-key-1"})
+    spare = client.post("/api/ui/spare-add", json={"provider": "anticaptcha", "key": "ac-very-secret-9999", "note": "от Васи"}).json()["state"]["human"]["spares"][0]
+    r = client.post("/api/ui/spare-promote", json={"id": spare["id"]}).json()
+    assert r["ok"] and r["message"] == "Anti-Captcha теперь основной."
+    # the keys stay in the Keychain under their accounts: the two secrets just swapped values
+    assert config.get_secret("human") == "ac-very-secret-9999"
+    assert config.get_secret(f"human:{spare['id']}") == "ru-main-key-1"
+    h = r["state"]["human"]
+    assert (h["provider"], h["hint"], h["note"]) == ("anticaptcha", "ac-v…9999", "от Васи")
+    assert [(a["title"], a["hint"]) for a in h["spares"]] == [("RuCaptcha", "ru-m…ey-1")]
+    assert (c.cfg.human_provider, c.cfg.human_base_url) == ("anticaptcha", "https://api.anti-captcha.com")
+    accounts = c.service.chain.layer("human").accounts
+    assert accounts[0].api_key == "ac-very-secret-9999" and accounts[1].base_url == "https://api.rucaptcha.com"
+    assert client.post("/api/ui/spare-promote", json={"id": "nope"}).status_code == 400
+    assert "very-secret" not in client.get("/api/ui/state").text
+
+
+def test_promoting_a_spare_without_a_main_key_moves_it_up(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.layers.human import HumanLayer
+
+    async def balance(self, index=0):
+        return 5.0
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    spare = client.post("/api/ui/spare-add", json={"provider": "2captcha", "key": "tc-key-12345678", "note": "рабочий"}).json()["state"]["human"]["spares"][0]
+    r = client.post("/api/ui/spare-promote", json={"id": spare["id"]}).json()
+    assert r["ok"] and r["state"]["human"]["spares"] == []
+    assert config.get_secret("human") == "tc-key-12345678" and not config.get_secret(f"human:{spare['id']}")
+    assert (c.cfg.human_provider, c.cfg.human_base_url, c.cfg.human_note) == ("2captcha", "https://api.2captcha.com", "рабочий")
+
+
+def test_the_window_can_copy_a_snippet(ui, monkeypatch):
+    c, client = ui
+    calls = []
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append((cmd, k.get("input"))))
+    r = client.post("/api/ui/copy", json={"text": '{"mcpServers": {}}'}).json()
+    assert r["ok"] and r["message"] == "Скопировано."
+    assert calls == [(["pbcopy"], b'{"mcpServers": {}}')]
+    assert client.post("/api/ui/copy", json={"text": ""}).status_code == 400
+    # outside the bundled app the agent config runs the pip script
+    assert client.get("/api/ui/state").json()["mcp"] == {"command": "imnotarobot-mcp", "args": []}
+
+
+def test_a_failed_captcha_lists_the_steps_it_tried(ui):
+    c, client = ui
+    task = {"type": "GeeTestTaskProxyless", "websiteURL": "https://example.com", "websiteKey": "k"}
+    task_id = client.post("/createTask", json={"clientKey": c.cfg.client_key, "task": task}).json()["taskId"]
+    for _ in range(200):
+        r = client.post("/getTaskResult", json={"clientKey": c.cfg.client_key, "taskId": task_id}).json()
+        if r.get("status") != "processing":
+            break
+        time.sleep(0.05)
+    assert r["errorCode"] == "ERROR_CAPTCHA_UNSOLVABLE"
+    row = client.get("/api/ui/state").json()["recent"][0]
+    assert row["error"] == "Люди: нет ключа" and row["notes"] == ["Люди: нет ключа"]
+
+
+def test_the_journal_comes_back_newest_first(tmp_path):
+    from imnotarobot.service import Job, Service
+
+    cfg = Config(state_path=str(tmp_path / "state.json"))
+    svc = Service(cfg)
+    for at, tid in ((100, 1), (300, 3), (200, 2)):
+        summary = {"id": tid, "at": at, "seconds": 1.0, "type": "ImageToTextTask", "layer": "local",
+                   "layerTitle": "Локальная модель", "answer": "x", "error": ""}
+        svc._write_journal(tid, Job({"type": "ImageToTextTask"}), summary)
+    # the mtimes tell the opposite story: the oldest entry was written last
+    for tid, mtime in ((3, 300), (2, 400), (1, 500)):
+        os.utime(svc.journal_dir / f"{tid}.json", (mtime, mtime))
+    assert [r["id"] for r in Service(cfg).recent] == [3, 2, 1]

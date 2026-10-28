@@ -10,6 +10,7 @@ import html
 import io
 import logging
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -54,6 +55,16 @@ TOKEN_FIELD = {
 }
 
 Solver = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+def short_error(e: Exception) -> str:
+    """The first line of a browser failure in plain Russian; a Playwright timeout reads like the browser's own one."""
+    parts = str(e).splitlines()
+    line = parts[0][:200].strip() if parts else ""
+    m = re.search(r"Timeout (\d+)ms exceeded", line)
+    if m:
+        return tr("не дождался ответа за {seconds} с", seconds=f"{int(m.group(1)) / 1000:g}")
+    return line
 
 
 def widget_page(kind: str, task: dict[str, Any]) -> str:
@@ -122,7 +133,7 @@ class BrowserLayer(Layer):
             except Unsolvable:
                 raise
             except Exception as e:
-                raise Unsolvable(tr("браузер: {error}", error=str(e).splitlines()[0][:200])) from e
+                raise Unsolvable(short_error(e)) from e
             return Result(solution, 1.0, self.name)
         kind = KINDS[task["type"]]
         url = str(task.get("websiteURL") or "").split("#")[0]
@@ -153,7 +164,7 @@ class BrowserLayer(Layer):
             except Unsolvable:
                 raise
             except Exception as e:
-                raise Unsolvable(tr("браузер: {error}", error=str(e).splitlines()[0][:200])) from e
+                raise Unsolvable(short_error(e)) from e
         solution = {"token": token, "userAgent": agent}
         if kind != "turnstile":
             solution["gRecaptchaResponse"] = token

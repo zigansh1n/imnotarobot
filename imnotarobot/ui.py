@@ -6,6 +6,7 @@ settings or read state through the local port. Secrets are never returned, only 
 """
 
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -50,6 +51,13 @@ EFFORT_TITLES = {k: tr(v) for k, v in {"default": "как у поставщик�
 
 def type_title(task_type: str) -> str:
     return TYPE_TITLES.get(task_type, task_type)
+
+
+def mcp_command() -> dict[str, Any]:
+    """What an agent's config runs: the bundled app with --mcp, or the pip script outside the bundle."""
+    if getattr(sys, "frozen", False):
+        return {"command": sys.executable, "args": ["--mcp"]}
+    return {"command": "imnotarobot-mcp", "args": []}
 
 
 def stats(c: "Controller") -> dict[str, Any]:
@@ -123,6 +131,7 @@ def state(c: "Controller") -> dict[str, Any]:
             "bench": {k: v for k, v in c.bench.items() if k != "report"},
             "datasets": c.datasets(),
             "access": {"required": cfg.require_client_key, "key": cfg.client_key, "portNote": c.port_note},
+            "mcp": mcp_command(),
             "detecting": c.detecting,
             "modelErrors": {name[4:]: {"at": at, "error": msg} for name, (at, msg) in LAST_ERRORS.items()},
             "modelTests": c.model_tests,
@@ -308,6 +317,15 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
         if action == "spare-remove":
             await run_in_threadpool(c.remove_human_account, str(b.get("id") or ""))
             return done(tr("Запасной ключ удалён."))
+        if action == "spare-promote":
+            await run_in_threadpool(c.promote_human_account, str(b.get("id") or ""))
+            return done(tr("{service} теперь основной.", service=HUMAN_TITLES.get(c.cfg.human_provider, c.cfg.human_provider)))
+        if action == "copy":
+            text = str(b.get("text") or "")
+            if not text:
+                raise ValueError(tr("нечего копировать"))
+            await run_in_threadpool(subprocess.run, ["pbcopy"], input=text.encode(), check=False)
+            return done(tr("Скопировано."))
         if action == "key-note":
             await run_in_threadpool(c.set_key_note, str(b.get("name") or ""), str(b.get("note") or ""))
             return done(tr("Подпись сохранена."))

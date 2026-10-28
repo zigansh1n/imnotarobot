@@ -168,7 +168,9 @@ class Chain:
             best.meta["low_confidence"] = True
             best.meta["tried"] = notes
             return best
-        raise Unsolvable("; ".join(notes) or tr("ни один слой не умеет {type}", type=task["type"]))
+        err = Unsolvable("; ".join(notes) or tr("ни один слой не умеет {type}", type=task["type"]))
+        err.notes = notes.copy()
+        raise err
 
     def sent_since(self, layer: str, since: float) -> int:
         return sum(1 for t in self.sent.get(layer, ()) if t >= since)
