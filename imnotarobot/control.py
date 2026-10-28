@@ -206,6 +206,19 @@ class Controller:
         items.append(("human", f"{LAYER_TITLES['human']} ({self.cfg.human_provider})", "human" in self.cfg.layers))
         return items
 
+    def landing_step(self, layer_id: str) -> str | None:
+        """The enabled step a switched-off one goes back before when switched on; None — to the end.
+
+        It goes back where it sits by default, before the first enabled step that follows it there —
+        but never after the paid human step, which itself always goes last.
+        """
+        order = [i for i, _, _ in self.layer_items()]
+        after = order[order.index(layer_id) + 1:] if layer_id in order else []
+        at = next((self.cfg.layers.index(i) for i in after if i in self.cfg.layers), len(self.cfg.layers))
+        if layer_id != "human" and "human" in self.cfg.layers:
+            at = min(at, self.cfg.layers.index("human"))
+        return self.cfg.layers[at] if at < len(self.cfg.layers) else None
+
     def model_lines(self) -> list[tuple[str, str]]:
         return [(m.name, f"{'✓' if m.ready() else tr('⚠ нет ключа')}  {m.name}: {m.provider} / {m.model or '?'}")
                 for m in self.cfg.models]
@@ -216,8 +229,10 @@ class Controller:
             if layer_id in self.cfg.layers:
                 self.cfg.layers.remove(layer_id)
             else:
-                # a switched-off row is shown after the enabled ones, so switching it on puts it there
-                self.cfg.layers.append(layer_id)
+                # a re-enabled step goes back before its landing step, so free steps stay ahead of the paid one
+                anchor = self.landing_step(layer_id)
+                at = self.cfg.layers.index(anchor) if anchor else len(self.cfg.layers)
+                self.cfg.layers.insert(at, layer_id)
             self._apply()
 
     def add_model(self, name: str, provider: str, model: str, key: str, base_url: str = "") -> ModelSpec:

@@ -160,10 +160,25 @@ def test_layers_move_and_toggle(ui):
     client.post("/api/ui/move-layer", json={"id": "human", "step": -2})
     assert c.cfg.layers == ["human", "local", "browser"]
     r = client.post("/api/ui/toggle-layer", json={"id": "local"}).json()
-    assert [(x["id"], x["enabled"]) for x in r["state"]["layers"]] == [("human", True), ("browser", True), ("local", False)]
-    # a switched-off row is shown after the enabled ones, so switching it on puts it there
+    # the off local step is shown where switching it on puts it: before the paid human step
+    assert [(x["id"], x["enabled"]) for x in r["state"]["layers"]] == [("local", False), ("human", True), ("browser", True)]
     client.post("/api/ui/toggle-layer", json={"id": "local"})
-    assert c.cfg.layers == ["human", "browser", "local"]
+    assert c.cfg.layers == ["local", "human", "browser"]
+
+
+def test_switched_off_steps_are_shown_where_they_land(ui):
+    c, client = ui
+    # the paid human step goes back to the end when re-enabled, not to its dragged place
+    client.post("/api/ui/move-layer", json={"id": "human", "step": -2})
+    client.post("/api/ui/toggle-layer", json={"id": "human"})
+    client.post("/api/ui/toggle-layer", json={"id": "human"})
+    assert c.cfg.layers == ["local", "browser", "human"]
+    # the off local step is shown first — exactly where switching it on puts it
+    client.post("/api/ui/toggle-layer", json={"id": "local"})
+    shown = [(x["id"], x["enabled"]) for x in client.get("/api/ui/state").json()["layers"]]
+    assert shown == [("local", False), ("browser", True), ("human", True)]
+    client.post("/api/ui/toggle-layer", json={"id": "local"})
+    assert c.cfg.layers == ["local", "browser", "human"]
 
 
 def test_key_left_by_an_older_build_asks_to_be_entered_again(tmp_path, monkeypatch):

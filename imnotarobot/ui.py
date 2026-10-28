@@ -81,7 +81,14 @@ def state(c: "Controller") -> dict[str, Any]:
         cfg = c.cfg
         layers = []
         known = {f"vlm:{m.name}": m for m in cfg.models}
-        order = list(cfg.layers) + [i for i in ["local", *known, "browser", "human"] if i not in cfg.layers]
+        off = [i for i in ["local", *known, "browser", "human"] if i not in cfg.layers]
+        # a switched-off step is shown where it would land when switched on (before its landing
+        # step), so the order the list shows is exactly the order switching steps on produces
+        order = []
+        for e in cfg.layers:
+            order.extend(x for x in off if x not in order and c.landing_step(x) == e)
+            order.append(e)
+        order.extend(x for x in off if x not in order)
         built = {x.name: x for x in c.service.chain.layers}
         for layer_id in order:
             if layer_id == "local":

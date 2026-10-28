@@ -43,14 +43,33 @@ def test_bad_input_is_refused(ctl):
         ctl.set_human(daily_limit=-1)
 
 
-def test_a_layer_switched_on_joins_the_order_where_it_is_shown(ctl):
+def test_toggling_layers_keeps_order_and_survives_reload(ctl):
     ctl.add_model("q", "dashscope", "qwen3-vl-plus", "k")
     ctl.toggle_layer("local")
     assert ctl.cfg.layers == ["vlm:q", "browser", "human"]
-    # the off row is shown after the enabled ones, so switching it back on puts it there
     ctl.toggle_layer("local")
-    assert ctl.cfg.layers == ["vlm:q", "browser", "human", "local"]
-    assert Config.load().layers == ["vlm:q", "browser", "human", "local"]
+    assert ctl.cfg.layers == ["local", "vlm:q", "browser", "human"]
+    assert Config.load().layers == ["local", "vlm:q", "browser", "human"]
+
+
+def test_a_reenabled_step_goes_back_ahead_of_the_paid_human_one(ctl):
+    ctl.add_model("q", "dashscope", "qwen3-vl-plus", "k")
+    # the paid human step itself goes back to the end, not to the place it was dragged to
+    ctl.move_layer("human", -3)
+    assert ctl.cfg.layers == ["human", "local", "vlm:q", "browser"]
+    ctl.toggle_layer("human")
+    ctl.toggle_layer("human")
+    assert ctl.cfg.layers == ["local", "vlm:q", "browser", "human"]
+    # the other steps go back where they belong by default, ahead of the paid one
+    for step in ("local", "vlm:q", "browser"):
+        ctl.toggle_layer(step)
+        ctl.toggle_layer(step)
+        assert ctl.cfg.layers == ["local", "vlm:q", "browser", "human"]
+    # even with the human step dragged above the rest, a re-enabled step lands before it
+    ctl.move_layer("human", -3)
+    ctl.toggle_layer("local")
+    ctl.toggle_layer("local")
+    assert ctl.cfg.layers == ["local", "human", "vlm:q", "browser"]
 
 
 def test_human_settings(ctl):
