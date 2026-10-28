@@ -598,6 +598,8 @@ const RULES = [
   [/^примерно (.+)$/, "about $1"], [/^Удалить ключ (.+) и его модели\?$/, "Remove key $1 and its models?"],
   [/^Удалить набор «(.+)»\?$/, (m, a) => `Remove the «${a}» set?`],
   [/^(.+): не дождался ответа за ([\d.,]+) с$/, (m, a, b) => `${t(a)}: no answer in ${b} s`],
+  // old entries wrapped a raw browser failure after the step name; only the name needs translating
+  [/^Браузер: (.+)$/, (m, a) => `Browser: ${t(a)}`],
   [/^Прогнать (.+) на 4 уровнях раздумий: решений (\d+), (.+)\. Запустить\?$/, (m, a, b, c) => `Run ${a} at 4 thinking levels: ${b} runs, ${t(c)}. Start?`],
   [/^(.+): ответ принят \((\d+)%\)$/m, "$1: answer accepted ($2%)"],
   [/^Вышла версия (\S+)( — обновить)?$/, (m, v, u) => `Version ${v} is out${u ? " — update" : ""}`],
