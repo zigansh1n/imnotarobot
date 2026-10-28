@@ -425,6 +425,7 @@ const EN = {
   "Наборы настоящих капч": "Sets of real captchas", "Проверить": "Test", "Выключить": "Turn off", "Раздумья: текст и сетки": "Thinking: text and grids",
   "клики": "clicks", "Сравнить уровни": "Compare levels", "поставщик не принимает эту настройку": "the provider ignores this setting",
   "не проверена": "not tested", "Отметьте модели ниже — они встанут в путь капчи.": "Tick models below, they join the captcha path.",
+  "в пути выключена": "off in the path", "включите её в разделе «Путь капчи»": "switch it on in «Captcha path»",
   "Все модели с картинками": "All vision models", "Найти модель": "Find a model", "Список недоступен — впишите название вручную.": "The list is unavailable, enter a name by hand.",
   "Вписать модель вручную": "Enter a model by hand", "Сравнить все модели ключа": "Compare all models of the key", "Обновить список": "Refresh the list",
   "введите ключ ещё раз": "enter the key again", "прошлая версия сохранила его так, что новая не может прочитать": "the previous version saved it so that this one cannot read it",
@@ -608,6 +609,7 @@ function stats(s) {
 function render(s) {
   const prev = S; S = s;
   if (s.lang && s.lang !== LANG) { LANG = s.lang; document.documentElement.lang = LANG; translateDom(document.body); }
+  (s.toasts || []).forEach(tn => { if (!shownToasts.has(tn.id)) { shownToasts.add(tn.id); toast(tn.text, true); } });
   const st = stats(s), on = s.layers.filter(l => l.enabled);
   const last = s.recent.find(r => !r.error);
   const hotId = last && on.some(l => l.id === last.layer) ? last.layer : null;
@@ -701,6 +703,8 @@ document.addEventListener("drop", e => {
 
 // the list is redrawn on every refresh; a list the user opened stays open
 const openModelLists = new Set();
+// toasts raised by background jobs are shown once each
+const shownToasts = new Set();
 document.addEventListener("toggle", e => {
   const name = e.target.dataset?.modelsOf;
   if (name !== undefined) e.target.open ? openModelLists.add(name) : openModelLists.delete(name);
@@ -711,13 +715,15 @@ function renderKeys(s) {
   if (box.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && !focused) return;
   box.innerHTML = s.keys.map(k => {
     const enabledIds = k.models.filter(m => m.enabled).map(m => m.id);
-    const enabled = enabledIds.map(id => {
-      const name = `${k.name}/${id}`, t = s.modelTests[name], err = s.modelErrors[name], ef = s.efforts[name] || {};
+    const enabled = k.models.filter(m => m.enabled).map(m => {
+      const id = m.id, name = `${k.name}/${id}`, t = s.modelTests[name], err = s.modelErrors[name], ef = s.efforts[name] || {};
+      // ticked in the card but switched off in the path: it must not look active
+      const off = m.inPath === false ? `<span class="tag warn">в пути выключена</span><span class="mut" style="font-size:12px">включите её в разделе «Путь капчи»</span>` : "";
       const test = t ? `<span class="tag ${t.ok === t.n ? "good" : t.ok ? "warn" : "bad"}">проверка ${t.ok}/${t.n} · ${t.seconds} с</span>` : '<span class="tag">не проверена</span>';
       const error = err ? `<span class="mut" title="${esc(err.error)}" style="font-size:12px">⚠ ${esc(err.error).slice(0, 80)} · ${ago(err.at)}</span>` : "";
       const pick = (kind, title) => `<label class="mut" style="font-size:12px">${title}<select class="small-select" data-effort="${kind}" data-key="${esc(k.name)}" data-model="${esc(id)}">
         ${Object.entries(EFFORTS).map(([v, t]) => `<option value="${v}" ${ef[kind] === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>`;
-      return `<div class="enabled-model"><b title="${esc(id)}">${esc(modelName(id))}</b>${modelNote(id) ? `<span class="mut" style="font-size:12px">${esc(modelNote(id))}</span>` : ""}${test}${error}<span class="grow"></span>
+      return `<div class="enabled-model"><b title="${esc(id)}">${esc(modelName(id))}</b>${modelNote(id) ? `<span class="mut" style="font-size:12px">${esc(modelNote(id))}</span>` : ""}${off}${test}${error}<span class="grow"></span>
         <button class="small" data-test="${esc(k.name)}" data-model="${esc(id)}">Проверить</button>
         <button class="small" data-off="${esc(k.name)}" data-model="${esc(id)}">Выключить</button></div>
         <div class="row" style="gap:14px;padding:2px 0 8px">${pick("recognition", "Раздумья: текст и сетки")}${pick("clicks", "клики")}

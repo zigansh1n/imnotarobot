@@ -9,7 +9,7 @@ from imnotarobot.config import Config
 from imnotarobot.control import Controller
 from imnotarobot.server import create_app
 from imnotarobot.ui import add_ui_routes
-from helpers import text_image
+from helpers import text_image, wait_health
 
 
 @pytest.fixture
@@ -26,6 +26,21 @@ def ui(tmp_path, monkeypatch):
         yield c, client
 
 
+def fake_provider(monkeypatch, status=200, message='{"text": "abc"}'):
+    """The background model check talks to this instead of the network."""
+    import httpx
+
+    real_run = control.bench.run
+
+    async def run_with_fake_model(specs, cases, votes=1, **kw):
+        def handler(request):
+            body = {"choices": [{"message": {"content": message}}]} if status == 200 else {"error": {"message": message}}
+            return httpx.Response(status, json=body)
+        return await real_run(specs, cases, votes=votes, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(control.bench, "run", run_with_fake_model)
+
+
 def test_api_refuses_requests_without_the_window_token(ui):
     c, client = ui
     assert client.get("/api/ui/state", headers={"X-UI-Token": "wrong"}).status_code == 403
@@ -38,6 +53,7 @@ def test_state_never_contains_secrets(ui, monkeypatch):
     c, client = ui
     from imnotarobot.discovery import Detected, ModelInfo
 
+    fake_provider(monkeypatch)
     monkeypatch.setattr(control, "detect_sync", lambda k, b="", progress=None: Detected("custom", "https://reseller.example/v1",
                                                                           [ModelInfo("claude-x", True)]))
     r = client.post("/api/ui/add-key", json={"secret": "sk-reseller-supersecretvalue"}).json()
@@ -45,8 +61,10 @@ def test_state_never_contains_secrets(ui, monkeypatch):
     assert "supersecretvalue" not in client.get("/api/ui/state").text
     r = client.post("/api/ui/toggle-model", json={"key": "reseller.example", "model": "claude-x"}).json()
     assert r["message"] == "claude-x: включена."
+    wait_health(c, "reseller.example/claude-x")
     layer = next(x for x in r["state"]["layers"] if x["id"] == "vlm:reseller.example/claude-x")
     assert layer["enabled"] and layer["ready"]
+    assert "supersecretvalue" not in client.get("/api/ui/state").text
 
 
 def test_bad_key_explains_why(ui, monkeypatch):
@@ -298,3 +316,47 @@ def test_restart_switch_shows_only_with_companion_apps(ui):
     assert client.get("/api/ui/state").json()["companions"] == {"apps": [], "restart": False}
     r = client.post("/api/ui/companion-restart", json={"on": True}).json()
     assert r["state"]["companions"]["restart"] and c.cfg.companion_restart
+
+
+def test_a_model_ticked_but_off_in_the_path_is_marked_in_the_key_card(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.discovery import Detected, ModelInfo
+
+    fake_provider(monkeypatch)
+    monkeypatch.setattr(control, "detect_sync", lambda k, b="", progress=None: Detected(
+        "openai", "https://api.openai.com/v1", [ModelInfo("gpt-x", True)]))
+    client.post("/api/ui/add-key", json={"secret": "sk-xyz"})
+    client.post("/api/ui/toggle-model", json={"key": "openai", "model": "gpt-x"})
+    wait_health(c, "openai/gpt-x")
+    client.post("/api/ui/toggle-layer", json={"id": "vlm:openai/gpt-x"})
+    models = client.get("/api/ui/state").json()["keys"][0]["models"]
+    assert models == [{"id": "gpt-x", "enabled": True, "inPath": False}]
+    client.post("/api/ui/toggle-layer", json={"id": "vlm:openai/gpt-x"})
+    assert client.get("/api/ui/state").json()["keys"][0]["models"][0]["inPath"]
+
+
+def test_enabling_a_model_checks_it_in_the_background_and_switches_off_picture_rejectors(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.discovery import Detected, ModelInfo
+    from imnotarobot.layers.vlm import LAST_ERRORS
+
+    fake_provider(monkeypatch, status=400, message="Invalid image or video input")
+    monkeypatch.setattr(control, "detect_sync", lambda k, b="", progress=None: Detected(
+        "openai", "https://api.openai.com/v1", [ModelInfo("gpt-x", True)]))
+    client.post("/api/ui/add-key", json={"secret": "sk-xyz"})
+    try:
+        r = client.post("/api/ui/toggle-model", json={"key": "openai", "model": "gpt-x"}).json()
+        assert r["message"] == "gpt-x: включена."
+        wait_health(c, "openai/gpt-x")
+        state = client.get("/api/ui/state").json()
+        assert state["keys"][0]["models"] == []  # it no longer counts as a model with pictures
+        assert not any(x["id"] == "vlm:openai/gpt-x" for x in state["layers"])
+        assert [tn["text"] for tn in state["toasts"]] == ["gpt-x не принимает картинки — выключена"]
+        # a model entered by hand gets the same background check
+        r = client.post("/api/ui/manual-model", json={"key": "openai", "model": "gpt-x"}).json()
+        assert r["message"] == "gpt-x добавлена и включена."
+        wait_health(c, "openai/gpt-x")
+        assert c.cfg.models == [] and c.cfg.layers == ["local", "browser", "human"]
+        assert list(c.toasts) == ["no-vision:openai/gpt-x"]  # one message, not one per check
+    finally:
+        LAST_ERRORS.pop("vlm:openai/gpt-x", None)

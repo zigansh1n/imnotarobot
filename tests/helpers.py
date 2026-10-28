@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import time
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -51,4 +52,13 @@ class FakeLayer(Layer):
         self.reports += 1
 
 
-__all__ = ["FakeLayer", "Unsolvable", "blank_image", "png_b64", "text_image"]
+def wait_health(controller, name: str) -> None:
+    """Waits for a background model check to finish: a test must not end with one still running."""
+    for _ in range(200):
+        if not controller.health_jobs.get(name, {}).get("running"):
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"background check of {name} did not finish")
+
+
+__all__ = ["FakeLayer", "Unsolvable", "blank_image", "png_b64", "text_image", "wait_health"]

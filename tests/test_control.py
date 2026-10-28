@@ -278,3 +278,121 @@ def test_notes_on_keys_survive_reload(ctl):
     ctl.set_key_note("proxy", "Antigravity Manager")
     cfg = Config.load()
     assert cfg.human_note == "основной, RuCaptcha" and cfg.keys[0].note == "Antigravity Manager"
+
+
+def test_model_alerts_explain_known_errors_and_are_shown_once_until_they_clear(ctl, monkeypatch):
+    from imnotarobot.layers.vlm import LAST_ERRORS
+
+    fake_detect(monkeypatch, "openai", [("gpt-x", True)])
+    ctl.add_key("sk-xyz")
+    ctl.toggle_key_model("openai", "gpt-x")
+    now = control.time.time()
+    try:
+        for msg, plain in [
+            ('сервис ответил HTTP 400: {"error": "User location is not supported for the API use"}',
+             "регион не поддерживается — нужен прокси/VPN у посредника"),
+            ("сервис ответил HTTP 401: Incorrect API key", "ключ не подходит"),
+            ("сервис ответил HTTP 403: permission denied", "ключ не подходит"),
+            ("сервис ответил HTTP 429: quota exceeded", "исчерпана квота запросов"),
+            ("сервис ответил HTTP 500: boom", "сервис ответил HTTP 500: boom"),
+        ]:
+            LAST_ERRORS["vlm:openai/gpt-x"] = (now, msg)
+            assert dict(ctl.alerts())["model-error:vlm:openai/gpt-x"] == f"Модель openai/gpt-x ошибается: {plain}"
+        # the id is the same whatever the message, so the menu bar notifies once until the alert clears
+        LAST_ERRORS["vlm:openai/gpt-x"] = (now, "сервис ответил HTTP 500: bang")
+        assert list(dict(ctl.alerts())) == ["model-error:vlm:openai/gpt-x"]
+        # a failure older than 10 minutes is not worth a notification, and a fresh one brings the alert back
+        LAST_ERRORS["vlm:openai/gpt-x"] = (now - 601, "сервис ответил HTTP 500: boom")
+        assert "model-error:vlm:openai/gpt-x" not in dict(ctl.alerts())
+        LAST_ERRORS["vlm:openai/gpt-x"] = (now, "сервис ответил HTTP 500: boom")
+        assert "model-error:vlm:openai/gpt-x" in dict(ctl.alerts())
+        # a layer switched off in the path, or a model that has solved since (vlm pops the entry), clears it
+        ctl.toggle_layer("vlm:openai/gpt-x")
+        assert "model-error:vlm:openai/gpt-x" not in dict(ctl.alerts())
+        ctl.toggle_layer("vlm:openai/gpt-x")
+        LAST_ERRORS.pop("vlm:openai/gpt-x")
+        assert "model-error:vlm:openai/gpt-x" not in dict(ctl.alerts())
+    finally:
+        LAST_ERRORS.pop("vlm:openai/gpt-x", None)
+
+
+@pytest.mark.parametrize("status,mention,off", [
+    (400, "Invalid image or video input", True),
+    (400, "this model does not support vision input", True),
+    (400, "not a multimodal model", True),
+    (400, "User location is not supported for the API use", False),  # a region block is not a picture refusal
+    (401, "Invalid image or video input", False),
+    (500, "Invalid image or video input", False),
+])
+def test_only_picture_refusals_switch_the_model_off(ctl, monkeypatch, status, mention, off):
+    from helpers import wait_health
+
+    fake_detect(monkeypatch, "openai", [("gpt-x", True)])
+    ctl.add_key("sk-xyz")
+    ctl.toggle_key_model("openai", "gpt-x")
+
+    async def refusing(specs, cases, votes=1, **kw):
+        error = f"сервис ответил HTTP {status}: {mention}"
+        return {s.name: {"rows": [{"ok": False, "error": error, "set": c["set"], "seconds": 0.1} for c in cases]}
+                for s in specs}
+
+    monkeypatch.setattr(control.bench, "run", refusing)
+    ctl.check_model_health("openai", "gpt-x")
+    wait_health(ctl, "openai/gpt-x")
+    assert (len(ctl.cfg.models) == 0) == off
+    assert ("no-vision:openai/gpt-x" in ctl.toasts) == off
+    assert ctl.model_tests["openai/gpt-x"]["ok"] == 0  # the test result is kept either way
+
+
+def test_a_picture_refusal_switches_the_model_off_end_to_end(ctl, monkeypatch):
+    import httpx
+    from helpers import wait_health
+    from imnotarobot.layers.vlm import LAST_ERRORS
+
+    fake_detect(monkeypatch, "openai", [("gpt-x", True)])
+    ctl.add_key("sk-xyz")
+    ctl.toggle_key_model("openai", "gpt-x")
+    real_run = control.bench.run
+
+    async def run_with_refusing_provider(specs, cases, votes=1, **kw):
+        def handler(request):
+            return httpx.Response(400, json={"error": {"message": "Invalid image or video input"}})
+        return await real_run(specs, cases, votes=votes, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(control.bench, "run", run_with_refusing_provider)
+    try:
+        ctl.check_model_health("openai", "gpt-x")
+        wait_health(ctl, "openai/gpt-x")
+        assert ctl.cfg.models == [] and ctl.cfg.layers == ["local", "browser", "human"]
+        assert ctl.key("openai").models[0][1] is False  # no longer listed as a model with pictures
+        assert Config.load().keys[0].models[0][1] is False
+        assert ctl.toasts["no-vision:openai/gpt-x"][1] == "gpt-x не принимает картинки — выключена"
+    finally:
+        LAST_ERRORS.pop("vlm:openai/gpt-x", None)
+
+
+def test_other_test_failures_leave_the_model_on_and_only_show_the_result(ctl, monkeypatch):
+    import httpx
+    from helpers import wait_health
+    from imnotarobot.layers.vlm import LAST_ERRORS
+
+    fake_detect(monkeypatch, "openai", [("gpt-x", True)])
+    ctl.add_key("sk-xyz")
+    ctl.toggle_key_model("openai", "gpt-x")
+    real_run = control.bench.run
+
+    async def run_with_broken_service(specs, cases, votes=1, **kw):
+        def handler(request):
+            return httpx.Response(500, json={"error": "boom"})
+        return await real_run(specs, cases, votes=votes, transport=httpx.MockTransport(handler), **kw)
+
+    monkeypatch.setattr(control.bench, "run", run_with_broken_service)
+    try:
+        ctl.check_model_health("openai", "gpt-x")
+        wait_health(ctl, "openai/gpt-x")
+        assert [m.name for m in ctl.cfg.models] == ["openai/gpt-x"] and "vlm:openai/gpt-x" in ctl.cfg.layers
+        assert ctl.key("openai").models[0][1] is True
+        assert not ctl.toasts
+        assert ctl.model_tests["openai/gpt-x"]["ok"] == 0
+    finally:
+        LAST_ERRORS.pop("vlm:openai/gpt-x", None)

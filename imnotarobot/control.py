@@ -27,12 +27,31 @@ from .service import Service
 from .i18n import tr
 
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "app.captcha-stack.plist"
+# a model layer's last failure stops being worth a notification after this many seconds
+MODEL_ERROR_WINDOW = 600
 LAYER_TITLES = {"local": tr("Локальная модель"), "browser": tr("Браузер (галочки: reCAPTCHA, hCaptcha, Turnstile)"), "human": tr("Люди")}
 HUMAN_TITLES = {"rucaptcha": "RuCaptcha", "2captcha": "2Captcha", "anticaptcha": "Anti-Captcha"}
 
 
 def money(value: float, currency: str) -> str:
     return f"{value:.2f} ₽" if currency == "₽" else f"${value:.2f}"
+
+
+def plain_error(msg: str) -> str:
+    """Known provider refusals in plain Russian, so a notification says what to do; the rest are quoted as answered."""
+    low = msg.lower()
+    if "location is not supported" in low:
+        return tr("регион не поддерживается — нужен прокси/VPN у посредника")
+    if "HTTP 401" in msg or "HTTP 403" in msg:
+        return tr("ключ не подходит")
+    if "HTTP 429" in msg:
+        return tr("исчерпана квота запросов")
+    return msg[:120]
+
+
+def rejects_images(error: str) -> bool:
+    """HTTP 400 that complains about image/vision/multimodal input: the provider lists a model that cannot see."""
+    return "HTTP 400" in error and any(w in error.lower() for w in ("image", "vision", "multimodal"))
 
 
 class Controller:
@@ -48,6 +67,10 @@ class Controller:
         self.bench: dict = {}
         self.detecting = ""
         self.model_tests: dict[str, dict] = {}
+        # checks of freshly enabled models running in the background, by model name
+        self.health_jobs: dict[str, dict] = {}
+        # messages for the window from jobs that cannot answer an action: id -> (unix time, text)
+        self.toasts: dict[str, tuple[float, str]] = {}
         self.dataset_jobs: dict[str, dict] = {}
         self.tiles_job: dict = {}
         self.port: int | None = None
@@ -495,6 +518,38 @@ class Controller:
         self.model_tests[spec.name] = result
         return result
 
+    def toast(self, id: str, text: str) -> None:
+        """The window shows each id once; old entries are dropped so a restart does not replay them."""
+        self.toasts = {i: v for i, v in self.toasts.items() if time.time() - v[0] < MODEL_ERROR_WINDOW}
+        self.toasts[id] = (time.time(), text)
+
+    def check_model_health(self, key_name: str, model_id: str) -> None:
+        """Tests a freshly enabled model in the background; one that rejects pictures is switched off at once."""
+        name = f"{key_name}/{model_id}"
+        if self.health_jobs.get(name, {}).get("running"):
+            return
+        job = self.health_jobs[name] = {"running": True}
+
+        def work():
+            try:
+                result = self.test_model(key_name, model_id)
+                if not result["ok"] and any(rejects_images(d["error"]) for d in result["details"]):
+                    for row in self.key(key_name).models:
+                        if row[0] == model_id:
+                            row[1] = False
+                    existing = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
+                    if existing:  # switched off by hand while the test ran: only the vision flag is left to save
+                        self.cfg.models.remove(existing)
+                        self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{existing.name}"]
+                    self._apply()
+                    self.toast(f"no-vision:{name}", tr("{model} не принимает картинки — выключена", model=model_id))
+            except Exception:
+                pass  # nothing to switch off; the empty test result says the check got no answer
+            finally:
+                job["running"] = False
+
+        threading.Thread(target=work, daemon=True, name="captcha-stack-health").start()
+
     def set_access(self, required: bool | None = None, regenerate: bool = False) -> None:
         if required is not None:
             self.cfg.require_client_key = required
@@ -540,8 +595,12 @@ class Controller:
             out.append(("cloud-limit", tr("Облачные модели: исчерпан дневной лимит ${limit}.", limit=f"{cloud:g}")))
         from .layers.vlm import LAST_ERRORS
 
-        for name, (_, msg) in LAST_ERRORS.items():
-            out.append((f"model-error:{name}:{msg[:40]}", tr("Модель {name} ошибается: {error}", name=name[4:], error=msg[:120])))
+        for name, (at, msg) in LAST_ERRORS.items():
+            # only an enabled layer is worth a notification; a success pops the entry, so a fresh entry
+            # means the model failed and nothing has been solved by it since
+            if name not in self.cfg.layers or time.time() - at > MODEL_ERROR_WINDOW:
+                continue
+            out.append((f"model-error:{name}", tr("Модель {name} ошибается: {error}", name=name[4:], error=plain_error(msg))))
         if self.update and not self.update_job.get("running"):
             out.append((f"update:{self.update['version']}", tr("Вышла версия {version}. Обновить можно в окне программы.", version=self.update["version"])))
         if self.bench.get("finished") and not self.bench.get("running"):
