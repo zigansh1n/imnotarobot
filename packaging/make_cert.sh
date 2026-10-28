@@ -12,6 +12,8 @@ set -e
 
 NAME="ImNotARobot Local"
 LOGIN=$(security login-keychain -d user | tr -d '"' | sed 's/^ *//;s/ *$//')
+# some Macs print nothing for login-keychain; the file has the same name everywhere
+[ -n "$LOGIN" ] || LOGIN="$HOME/Library/Keychains/login.keychain-db"
 if [ -z "$LOGIN" ] || [ ! -e "$LOGIN" ]; then
   echo "error: login keychain not found" >&2
   exit 1
