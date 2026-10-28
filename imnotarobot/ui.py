@@ -68,68 +68,70 @@ def stats(c: "Controller") -> dict[str, Any]:
 
 
 def state(c: "Controller") -> dict[str, Any]:
-    cfg = c.cfg
-    layers = []
-    known = {f"vlm:{m.name}": m for m in cfg.models}
-    order = list(cfg.layers) + [i for i in ["local", *known, "browser", "human"] if i not in cfg.layers]
-    built = {x.name: x for x in c.service.chain.layers}
-    for layer_id in order:
-        if layer_id == "local":
-            title, ready, why = LAYER_TITLES["local"], True, ""
-        elif layer_id == "browser":
-            title = LAYER_TITLES["browser"]
-            ready = BrowserLayer(None).available()
-            why = "" if ready else tr("нужен Google Chrome")
-        elif layer_id == "human":
-            title = tr("Люди ({name})", name=HUMAN_TITLES.get(cfg.human_provider, cfg.human_provider))
-            ready = bool(cfg.human_api_key or cfg.human_extra)
-            why = "" if ready else tr("нет ключа")
-        elif layer_id in known:
-            m = known[layer_id]
-            title, ready, why = f"{m.model} · {m.key or m.provider}", m.ready(), "" if m.ready() else tr("нет ключа")
-        else:
-            continue
-        can = LAYER_CAN["vlm" if layer_id.startswith("vlm:") else layer_id]
-        layers.append({"id": layer_id, "title": title, "enabled": layer_id in cfg.layers, "ready": ready,
-                       "why": why, "active": layer_id in built, "can": can})
-    day = c.service.today()
-    return {
-        "paused": c.service.paused, "address": c.address, "startAtLogin": c.starts_at_login(),
-        "permissions": c.permission_warnings(),
-        "today": {"solved": int(sum(v.get("solved", 0) for v in day.values())),
-                  "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
-        "layers": layers,
-        "keys": [{"name": k.name, "provider": k.provider, "hint": k.hint, "baseUrl": k.base_url, "listable": k.listable, "note": k.note,
-                  "models": [{"id": mid, "enabled": on, "inPath": f"vlm:{k.name}/{mid}" in cfg.layers}
-                             for mid, on in c.key_models(k.name)]} for k in cfg.keys],
-        "efforts": {m.name: {"recognition": m.effort_recognition, "clicks": m.effort_clicks,
-                             "unsupported": m.name in NO_EFFORT} for m in cfg.models},
-        "human": {"provider": cfg.human_provider, "currency": HUMAN_CURRENCY.get(cfg.human_provider, "$"),
-                  "hasKey": bool(cfg.human_api_key), "hint": cfg.human_key_hint, "legacyKey": c.legacy_human_key,
-                  "limit": cfg.human_daily_limit, "lowBalance": cfg.human_low_balance, "rubPerUsd": cfg.rub_per_usd,
-                  "status": c.human_status, "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider),
-                  "note": cfg.human_note,
-                  "spares": [{"id": a.id, "provider": a.provider, "title": HUMAN_TITLES.get(a.provider, a.provider), "note": a.note,
-                              "hint": a.hint, "currency": HUMAN_CURRENCY.get(a.provider, "$"), "status": c.spare_status.get(a.id, {}),
-                              "topup": HUMAN_TOPUP.get(a.provider)} for a in cfg.human_extra]},
-        "companions": {"apps": cfg.companion_apps, "restart": cfg.companion_restart},
-        "cloud": {"limit": cfg.cloud_daily_limit_usd, "spentToday": c.spend_today()["cloud_usd"],
-                  "unpriced": [m.name for m in cfg.models if not (m.price_in or m.price_out)]},
-        "recent": [{**r, "typeTitle": type_title(r.get("type", ""))} for r in list(c.service.recent)[:50]],
-        "stats": stats(c),
-        "bench": {k: v for k, v in c.bench.items() if k != "report"},
-        "datasets": c.datasets(),
-        "access": {"required": cfg.require_client_key, "key": cfg.client_key, "portNote": c.port_note},
-        "detecting": c.detecting,
-        "modelErrors": {name[4:]: {"at": at, "error": msg} for name, (at, msg) in LAST_ERRORS.items()},
-        "modelTests": c.model_tests,
-        "toasts": [{"id": i, "text": text, "at": at} for i, (at, text) in c.toasts.items()],
-        "benchCases": len(c.bench_cases()),
-        "tiles": {"installed": tiles.available(), "sizeMb": tiles.SIZE_MB, "job": c.tiles_job},
-        "update": c.update and {**c.update, "job": c.update_job},
-        "now": time.time(),
-        "lang": i18n.LANG,
-    }
+    # one consistent snapshot: background jobs save settings behind this same lock
+    with c._lock:
+        cfg = c.cfg
+        layers = []
+        known = {f"vlm:{m.name}": m for m in cfg.models}
+        order = list(cfg.layers) + [i for i in ["local", *known, "browser", "human"] if i not in cfg.layers]
+        built = {x.name: x for x in c.service.chain.layers}
+        for layer_id in order:
+            if layer_id == "local":
+                title, ready, why = LAYER_TITLES["local"], True, ""
+            elif layer_id == "browser":
+                title = LAYER_TITLES["browser"]
+                ready = BrowserLayer(None).available()
+                why = "" if ready else tr("нужен Google Chrome")
+            elif layer_id == "human":
+                title = tr("Люди ({name})", name=HUMAN_TITLES.get(cfg.human_provider, cfg.human_provider))
+                ready = bool(cfg.human_api_key or cfg.human_extra)
+                why = "" if ready else tr("нет ключа")
+            elif layer_id in known:
+                m = known[layer_id]
+                title, ready, why = f"{m.model} · {m.key or m.provider}", m.ready(), "" if m.ready() else tr("нет ключа")
+            else:
+                continue
+            can = LAYER_CAN["vlm" if layer_id.startswith("vlm:") else layer_id]
+            layers.append({"id": layer_id, "title": title, "enabled": layer_id in cfg.layers, "ready": ready,
+                           "why": why, "active": layer_id in built, "can": can})
+        day = c.service.today()
+        return {
+            "paused": c.service.paused, "address": c.address, "startAtLogin": c.starts_at_login(),
+            "permissions": c.permission_warnings(),
+            "today": {"solved": int(sum(v.get("solved", 0) for v in day.values())),
+                      "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
+            "layers": layers,
+            "keys": [{"name": k.name, "provider": k.provider, "hint": k.hint, "baseUrl": k.base_url, "listable": k.listable, "note": k.note,
+                      "models": [{"id": mid, "enabled": on, "inPath": f"vlm:{k.name}/{mid}" in cfg.layers}
+                                 for mid, on in c.key_models(k.name)]} for k in cfg.keys],
+            "efforts": {m.name: {"recognition": m.effort_recognition, "clicks": m.effort_clicks,
+                                 "unsupported": m.name in NO_EFFORT} for m in cfg.models},
+            "human": {"provider": cfg.human_provider, "currency": HUMAN_CURRENCY.get(cfg.human_provider, "$"),
+                      "hasKey": bool(cfg.human_api_key), "hint": cfg.human_key_hint, "legacyKey": c.legacy_human_key,
+                      "limit": cfg.human_daily_limit, "lowBalance": cfg.human_low_balance, "rubPerUsd": cfg.rub_per_usd,
+                      "status": c.human_status, "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider),
+                      "note": cfg.human_note,
+                      "spares": [{"id": a.id, "provider": a.provider, "title": HUMAN_TITLES.get(a.provider, a.provider), "note": a.note,
+                                  "hint": a.hint, "currency": HUMAN_CURRENCY.get(a.provider, "$"), "status": c.spare_status.get(a.id, {}),
+                                  "topup": HUMAN_TOPUP.get(a.provider)} for a in cfg.human_extra]},
+            "companions": {"apps": cfg.companion_apps, "restart": cfg.companion_restart},
+            "cloud": {"limit": cfg.cloud_daily_limit_usd, "spentToday": c.spend_today()["cloud_usd"],
+                      "unpriced": [m.name for m in cfg.models if not (m.price_in or m.price_out)]},
+            "recent": [{**r, "typeTitle": type_title(r.get("type", ""))} for r in list(c.service.recent)[:50]],
+            "stats": stats(c),
+            "bench": {k: v for k, v in c.bench.items() if k != "report"},
+            "datasets": c.datasets(),
+            "access": {"required": cfg.require_client_key, "key": cfg.client_key, "portNote": c.port_note},
+            "detecting": c.detecting,
+            "modelErrors": {name[4:]: {"at": at, "error": msg} for name, (at, msg) in LAST_ERRORS.items()},
+            "modelTests": c.model_tests,
+            "toasts": [{"id": i, "text": text, "at": at} for i, (at, text) in c.toasts.items()],
+            "benchCases": len(c.bench_cases()),
+            "tiles": {"installed": tiles.available(), "sizeMb": tiles.SIZE_MB, "job": c.tiles_job},
+            "update": c.update and {**c.update, "job": c.update_job},
+            "now": time.time(),
+            "lang": i18n.LANG,
+        }
 
 
 def add_ui_routes(app: FastAPI, c: "Controller") -> None:
@@ -331,15 +333,16 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
             human, low, cloud, rate = number("human"), number("low"), number("cloud"), number("rate")
             if rate is not None and rate <= 0:
                 raise ValueError(tr("курс должен быть больше нуля"))
-            if human is not None:
-                c.cfg.human_daily_limit = human
-            if low is not None:
-                c.cfg.human_low_balance = low
-            if cloud is not None:
-                c.cfg.cloud_daily_limit_usd = cloud
-            if rate is not None:
-                c.cfg.rub_per_usd = rate
-            c._apply()
+            with c._lock:
+                if human is not None:
+                    c.cfg.human_daily_limit = human
+                if low is not None:
+                    c.cfg.human_low_balance = low
+                if cloud is not None:
+                    c.cfg.cloud_daily_limit_usd = cloud
+                if rate is not None:
+                    c.cfg.rub_per_usd = rate
+                c._apply()
             h = c.cfg.human_daily_limit
             def per_day(v, cur):
                 return tr("без лимита") if not v else tr("{money} в день", money=money(v, cur))

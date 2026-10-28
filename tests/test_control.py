@@ -1,4 +1,5 @@
 import plistlib
+import threading
 
 import pytest
 
@@ -404,3 +405,102 @@ def test_other_test_failures_leave_the_model_on_and_only_show_the_result(ctl, mo
         assert ctl.model_tests["openai/gpt-x"]["ok"] == 0
     finally:
         LAST_ERRORS.pop("vlm:openai/gpt-x", None)
+
+
+def test_many_threads_changing_settings_all_survive_a_reload(ctl, monkeypatch):
+    fake_detect(monkeypatch, "openai", [(f"gpt-{i}", True) for i in range(4)])
+    ctl.add_key("sk-xyz")
+    for i in range(4):
+        ctl.toggle_key_model("openai", f"gpt-{i}")
+
+    # what a real run is like: every save reads the Keychain, and one save is slow to land
+    monkeypatch.setattr(config, "get_secret", lambda a: (control.time.sleep(0.003) or ""))
+    stalled = {"used": False}
+    real_save = Config.save
+
+    def stalling_save(self_cfg, path=None):
+        if not stalled["used"]:
+            stalled["used"] = True
+            control.time.sleep(0.3)  # without one lock the other writers race past and get overwritten
+        real_save(self_cfg, path)
+
+    monkeypatch.setattr(Config, "save", stalling_save)
+    errors: list[Exception] = []
+    changes = [
+        lambda: ctl.toggle_key_model("openai", "gpt-0"),
+        lambda: ctl.toggle_key_model("openai", "gpt-1"),
+        lambda: ctl.set_effort("openai", "gpt-2", "clicks", "high"),
+        lambda: ctl.set_effort("openai", "gpt-3", "recognition", "low"),
+        lambda: ctl.set_key_note("openai", "написано параллельно"),
+        lambda: ctl.toggle_layer("local"),
+        lambda: ctl.set_companion_restart(True),
+        lambda: ctl.set_access(required=False),
+        lambda: ctl.set_human(daily_limit=7),
+        lambda: ctl.add_model("extra", "openai", "gpt-extra", ""),
+        lambda: ctl.add_human_account("2captcha", "spare-key-123456", "запасной"),
+        lambda: ctl.move_layer("human", -3),
+    ]
+    gate = threading.Barrier(len(changes))
+
+    def job(fn):
+        gate.wait()
+        try:
+            fn()
+        except Exception as e:  # without one lock, a save could drop another change or fail outright
+            errors.append(e)
+
+    # a reader keeps parsing the file mid-storm: a torn save would surface here
+    stop = threading.Event()
+
+    def read():
+        while not stop.is_set():
+            try:
+                Config.load()
+            except Exception as e:
+                errors.append(e)
+            control.time.sleep(0.001)
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    writers = [threading.Thread(target=job, args=(fn,)) for fn in changes]
+    for t in writers:
+        t.start()
+    for t in writers:
+        t.join()
+    stop.set()
+    reader.join()
+    cfg = Config.load()
+    models = {m.model: m for m in cfg.models}
+    assert not errors
+    assert "gpt-0" not in models and "gpt-1" not in models and "gpt-extra" in models
+    assert models["gpt-2"].effort_clicks == "high" and models["gpt-3"].effort_recognition == "low"
+    assert cfg.keys[0].note == "написано параллельно"
+    assert "local" not in cfg.layers and "vlm:openai/gpt-2" in cfg.layers and "vlm:extra" in cfg.layers
+    assert "human" in cfg.layers
+    assert cfg.companion_restart and not cfg.require_client_key and cfg.human_daily_limit == 7
+    assert [a.note for a in cfg.human_extra] == ["запасной"]
+
+
+def test_a_health_check_never_drops_a_change_made_while_it_runs(ctl, monkeypatch):
+    from helpers import wait_health
+
+    fake_detect(monkeypatch, "openai", [("gpt-x", True), ("gpt-y", True)])
+    ctl.add_key("sk-xyz")
+    ctl.toggle_key_model("openai", "gpt-x")
+    release = threading.Event()
+
+    def slow_test(key_name, model_id):
+        release.wait()  # the window changes settings while the check is running
+        return {"ok": 0, "n": 3, "seconds": 0.1, "error": "",
+                "details": [{"set": "text", "ok": False, "error": "сервис ответил HTTP 400: Invalid image or video input"}]}
+
+    monkeypatch.setattr(ctl, "test_model", slow_test)
+    ctl.check_model_health("openai", "gpt-x")
+    control.time.sleep(0.05)  # let the check reach its wait
+    ctl.toggle_key_model("openai", "gpt-y")  # a settings change during the check
+    release.set()
+    wait_health(ctl, "openai/gpt-x")
+    cfg = Config.load()
+    assert [m.model for m in cfg.models] == ["gpt-y"]  # both the switch-off and the later tick survive
+    assert "vlm:openai/gpt-y" in cfg.layers and "vlm:openai/gpt-x" not in cfg.layers
+    assert ctl.key("openai").models[0][1] is False

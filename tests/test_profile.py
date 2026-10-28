@@ -7,7 +7,8 @@ from PIL import Image
 
 from imnotarobot.layers import Unsolvable
 from imnotarobot.layers.browser import CHROME_PATHS, BrowserLayer
-from imnotarobot.layers.profile import contact_sheet, looks_same, same_site, slider_shift
+from imnotarobot.layers.profile import (Arkose, DataDome, check_endpoint, contact_sheet, looks_same, same_site,
+                                         slider_shift)
 from helpers import png_b64
 
 SHOP = "https://shop.example/"
@@ -82,6 +83,78 @@ def test_without_cdp_endpoint_the_task_goes_on_to_the_next_layer():
     assert layer.supports("DataDomeSliderTask") and layer.supports("FunCaptchaTaskProxyless")
     with pytest.raises(Unsolvable, match="cdpEndpoint"):
         asyncio.run(layer.solve({"type": "DataDomeSliderTask", "websiteURL": SHOP}))
+
+
+@pytest.mark.parametrize("endpoint", ["http://127.0.0.1:9222", "http://[::1]:9222", "ws://localhost:9222/devtools/page/1"])
+def test_loopback_cdp_endpoints_are_allowed(endpoint):
+    check_endpoint(endpoint)  # must not raise
+
+
+@pytest.mark.parametrize("endpoint", [
+    "http://203.0.113.7:9222",                # someone else's machine
+    "ws://browser.example:9222/devtools/1",
+    "http://127.0.0.1.evil.example:9222",    # a host that merely starts like loopback
+    "devtools://203.0.113.7:9222",           # not an http/ws address at all
+    "203.0.113.7:9222",
+])
+def test_other_cdp_endpoints_are_refused(endpoint):
+    with pytest.raises(Unsolvable, match="этот Мак|http://"):
+        check_endpoint(endpoint)
+
+
+def test_the_cdp_path_refuses_a_far_away_endpoint_before_connecting():
+    layer = BrowserLayer(None)
+    with pytest.raises(Unsolvable, match="этот Мак"):
+        asyncio.run(layer.solve({"type": "FunCaptchaTask", "cdpEndpoint": "http://203.0.113.7:9222"}))
+
+
+def test_arkose_reports_success_only_with_a_real_token():
+    from types import SimpleNamespace
+
+    played = []
+    page = SimpleNamespace(frames=[SimpleNamespace(url="https://client-api.arkoselabs.com/fc/game")])
+    arkose = Arkose(page, models=None, drag=None)
+
+    async def token():
+        return ""
+
+    async def game():
+        return object() if not played else None
+
+    async def play(frame):
+        played.append(frame)
+        page.frames = []  # the challenge vanished without ever handing out a token
+
+    async def button(frame, pattern):
+        return None
+
+    arkose.token, arkose.game, arkose.play, arkose.button = token, game, play, button
+    with pytest.raises(Unsolvable, match="токен не появился"):
+        asyncio.run(arkose.solve())
+
+    async def with_token():
+        return "abc|r=eu-west-1|meta=3"
+
+    arkose.token = with_token
+    assert asyncio.run(arkose.solve()) == {"token": "abc|r=eu-west-1|meta=3", "passed": True}
+
+
+def test_datadome_reports_success_only_with_a_fresh_cookie():
+    class Page:
+        url = SHOP
+
+        class context:
+            @staticmethod
+            async def cookies(urls):
+                return [{"name": "datadome", "value": "stale"}]
+
+        async def evaluate(self, js):
+            return "Mozilla/5.0"
+
+    dd = DataDome(Page(), drag=None)
+    with pytest.raises(Unsolvable, match="не поменялся"):
+        asyncio.run(dd.result("stale"))  # the page moved on without the slider passing
+    assert asyncio.run(dd.result("old"))["cookie"] == "datadome=stale"
 
 
 def free_port() -> int:

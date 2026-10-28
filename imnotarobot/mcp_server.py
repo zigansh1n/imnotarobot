@@ -9,6 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from .client import Client, NotRunning, StillSolving, image_b64
 from .i18n import tr
+from .layers.profile import check_endpoint
 
 server = MCPServer(
     name="captcha-stack",
@@ -105,8 +106,10 @@ def solve_token_captcha(kind: Literal["recaptcha_v2", "recaptcha_v3", "hcaptcha"
 @explained
 def solve_in_browser(kind: Literal["datadome", "funcaptcha"], cdp_endpoint: str, page_url: str = "") -> dict:
     """Solve DataDome or Arkose FunCaptcha right in your own browser (an anti-detect profile) that is showing it.
-    cdp_endpoint is the profile's DevTools address, e.g. http://127.0.0.1:9222 or ws://...; page_url picks the tab.
-    The page passes by itself; answer.cookie (DataDome) or answer.token (Arkose) is returned in case you need it."""
+    cdp_endpoint is the profile's DevTools address on this Mac, loopback only (127.0.0.1, ::1 or localhost),
+    e.g. http://127.0.0.1:9222 or ws://...; page_url picks the tab. The page passes by itself; answer.cookie
+    (DataDome) or answer.token (Arkose) is returned in case you need it."""
+    check_endpoint(cdp_endpoint)
     task = {"type": BROWSER_KINDS[kind], "cdpEndpoint": cdp_endpoint}
     if page_url:
         task["websiteURL"] = page_url

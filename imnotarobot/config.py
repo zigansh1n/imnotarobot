@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import threading
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -200,6 +201,7 @@ class Config:
         data.pop("human_api_key")
         for m in data["models"]:
             m.pop("api_key", None)
-        tmp = path.with_suffix(".tmp")
+        # a temp name unique per write: two saves at once must not move each other's half-written file
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
         tmp.replace(path)

@@ -78,3 +78,12 @@ def test_slider_goes_through_the_mcp_tool(running, tmp_path):
     piece.save(tmp_path / "piece.png")
     r = mcp_server.solve_image_captcha(str(tmp_path / "bg.png"), kind="slide", piece=str(tmp_path / "piece.png"))
     assert abs(r["answer"]["x"] - 170) <= 2 and r["layer"] == "local"
+
+
+def test_solve_in_browser_refuses_a_cdp_endpoint_beyond_this_mac():
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    with pytest.raises(ToolError, match="этот Мак"):
+        mcp_server.solve_in_browser("datadome", "http://203.0.113.7:9222")
+    with pytest.raises(ToolError, match="http://"):
+        mcp_server.solve_in_browser("funcaptcha", "203.0.113.7:9222")
