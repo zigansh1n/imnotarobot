@@ -350,7 +350,7 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
         <div class="sub">Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.</div>
         <div class="kv"><div><b>Папка расширения</b><br><span class="mut">Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.</span></div>
           <button id="showExt">Показать папку</button></div>
-        <div class="kv"><div><b>Ключ доступа</b><br><span class="mut">Вставьте его в настройках расширения один раз. Адрес сервера там уже стоит: http://127.0.0.1:8765.</span></div>
+        <div class="kv"><div><b>Ключ доступа</b><br><span class="mut">Вставьте его в настройках расширения один раз. Приложение расширение найдёт само: оно проверяет 127.0.0.1 на портах 8765–8774.</span></div>
           <button id="copyKeyExt">Скопировать ключ</button></div>
       </div>
       <details><summary>Примеры запросов</summary>
@@ -462,8 +462,8 @@ const EN = {
   "Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.":
     "Chrome: chrome://extensions → turn on «Developer mode» → «Load unpacked» → pick this folder. In an anti-detect browser (Dolphin Anty, AdsPower, Octo) add it to the profile as a local extension.",
   "Показать папку": "Show the folder",
-  "Вставьте его в настройках расширения один раз. Адрес сервера там уже стоит: http://127.0.0.1:8765.":
-    "Paste it once into the extension settings. The server address is already set there: http://127.0.0.1:8765.",
+  "Вставьте его в настройках расширения один раз. Приложение расширение найдёт само: оно проверяет 127.0.0.1 на портах 8765–8774.":
+    "Paste it once into the extension settings. The extension finds the app by itself: it checks 127.0.0.1 on ports 8765–8774.",
   "Скопировать ключ": "Copy the key",
   "не требуется": "not required", "любой": "any",
   "Нажмите на строку, чтобы увидеть картинку, ответ и путь по ступеням. Хранятся последние 300.": "Click a row to see the picture, the answer and the path through the steps. The last 300 are kept.",

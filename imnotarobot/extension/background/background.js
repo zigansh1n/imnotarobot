@@ -14,9 +14,9 @@ chrome.runtime.onInstalled.addListener(function(details) {
 
 var API;
 
-Config.getAll().then(config => {
+Config.getAll().then(async config => {
     if (config.apiKey) {
-        initApiClient(config.apiKey, config.apiService);
+        await ensureApiClient();
     }
 });
 
@@ -27,6 +27,70 @@ function initApiClient(apiKey, service) {
         defaultTimeout: 300,
         pollingInterval: 5,
     });
+}
+
+
+/*
+ * The app listens on 127.0.0.1:8765-8774, taking the first free port. A base is used only
+ * after /app-info proves it is our app; the access key is never sent anywhere else.
+ */
+async function verifiedService(base) {
+    try {
+        let response = await fetch(base.replace(/\/+$/, "") + "/app-info");
+        if (response.ok && (await response.json()).app === "imnotarobot") return base;
+    } catch (e) {}
+
+    return null;
+}
+
+async function resolveService(configured) {
+    let candidates = [];
+
+    if (configured) candidates.push(configured);
+    for (let port = 8765; port <= 8774; port++) candidates.push("http://127.0.0.1:" + port);
+
+    for (let base of [...new Set(candidates)]) {
+        if (await verifiedService(base)) return base;
+    }
+
+    return null;
+}
+
+async function ensureApiClient() {
+    if (API) return API;
+
+    let config = await Config.getAll();
+
+    if (!config.apiKey) throw new Error("Enter the access key in the extension options");
+
+    let service = await resolveService(config.apiService);
+
+    if (!service) throw new Error("The ImNotARobot app is not running (127.0.0.1:8765-8774)");
+
+    initApiClient(config.apiKey, service);
+    if (service !== config.apiService) Config.set({apiService: service});
+
+    return API;
+}
+
+
+/*
+ * A page can ask for solves through the DOM channel (content/script.js relays them);
+ * a tab gets a few of those per minute, anything beyond that is refused.
+ */
+const RELAY_LIMIT = 5;
+const relayHistory = new Map();  // tab id -> solve timestamps
+
+function relayAllowed(tabId) {
+    let now = Date.now();
+    let recent = (relayHistory.get(tabId) || []).filter(function (t) { return now - t < 60000; });
+
+    if (recent.length >= RELAY_LIMIT) return false;
+
+    recent.push(now);
+    relayHistory.set(tabId, recent);
+
+    return true;
 }
 
 
@@ -45,7 +109,7 @@ chrome.runtime.onConnect.addListener(function(port) {
 
         if (self[messageHandler] === undefined) return;
 
-        self[messageHandler](msg)
+        self[messageHandler](msg, port)
             .then((response) => {
                 //console.log('response to [' + messageHandler + ']: ', response);
                 port.postMessage({action: msg.action, request: msg, response});
@@ -66,7 +130,11 @@ chrome.runtime.onConnect.addListener(function(port) {
 async function popup_login(msg) {
     let config = await Config.getAll();
 
-    initApiClient(msg.apiKey, msg.apiService || config.apiService);
+    let service = await resolveService(msg.apiService || config.apiService);
+
+    if (!service) throw new Error("The ImNotARobot app is not running (127.0.0.1:8765-8774)");
+
+    initApiClient(msg.apiKey, service);
 
     let info = await API.userInfo();
 
@@ -78,7 +146,7 @@ async function popup_login(msg) {
 
     Config.set({
         apiKey: msg.apiKey,
-        apiService: msg.apiService || config.apiService,
+        apiService: service,
         email:  info.email,
         valute: info.valute,
     });
@@ -88,6 +156,7 @@ async function popup_login(msg) {
 
 async function popup_logout(msg) {
     Config.set({apiKey: null});
+    API = null;
 
     return {};
 }
@@ -97,13 +166,31 @@ async function popup_getAccountInfo(msg) {
 
     if (!config.apiKey) throw new Error("No apiKey");
 
-    let info = await API.userInfo();
+    let info = await (await ensureApiClient()).userInfo();
 
-    info.valute = info.valute.toUpperCase();
+    info.valute = (info.valute || "USD").toUpperCase();
 
     return info;
 }
 
-async function content_solve(msg) {
-    return await API[msg.captchaType](msg.params);
+async function content_solve(msg, port) {
+    if (msg.messageId !== undefined) {
+        // the request came from the page, not from our own button
+        let tabId = port && port.sender && port.sender.tab ? port.sender.tab.id : 0;
+
+        if (!relayAllowed(tabId)) throw new Error("RATE_LIMIT_EXCEEDED");
+    }
+
+    let api = await ensureApiClient();
+
+    try {
+        return await api[msg.captchaType](msg.params);
+    } catch (e) {
+        if (e.message !== "API_CONNECTION_ERROR") throw e;
+
+        // the app may have moved to another port since this client was built: find it again, once
+        API = null;
+
+        return await (await ensureApiClient())[msg.captchaType](msg.params);
+    }
 }

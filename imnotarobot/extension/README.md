@@ -16,8 +16,9 @@ Based on the 2Captcha extension; see `NOTICE` for what was changed and
    **Load unpacked** and pick this folder. In an anti-detect browser, add this
    folder to the profile as a local extension.
 3. Open the extension's options (or its popup), paste the **access key** from
-   the app's **Connection** section, press **Login**. The server address is
-   already set to `http://127.0.0.1:8765`.
+   the app's **Connection** section, press **Login**. The extension finds the app by
+   itself: it checks `127.0.0.1` on ports 8765–8774 and only ever sends the key to a
+   server that proves, through `/app-info`, that it is ImNotARobot.
 
 Image captchas are picked up after you once point the extension at them:
 right-click the picture → *Solve this captcha*, then right-click the answer

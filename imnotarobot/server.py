@@ -84,6 +84,12 @@ def create_app(cfg: Config | None = None, layers: list[Layer] | None = None,
         except Exception as e:
             return _error("ERROR_UPSTREAM", str(e))
 
+    @app.get("/app-info")
+    async def app_info():
+        """Names this app with no key and no internals: the browser extension probes this to find
+        the right port before it ever sends the access key anywhere."""
+        return {"app": "imnotarobot", "version": __version__}
+
     @app.get("/health")
     async def health():
         return {"ok": True, "service": "captcha-stack", "app": "imnotarobot", "version": __version__, "paused": svc.paused,
