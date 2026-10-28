@@ -1,6 +1,8 @@
 import asyncio
+import os
 import socket
 import sys
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -168,7 +170,11 @@ def chrome_missing() -> bool:
         import patchright  # noqa: F401
     except ImportError:
         return True
-    return sys.platform == "darwin" and not any(p.exists() for p in CHROME_PATHS)
+    if sys.platform == "darwin":
+        return not any(p.exists() for p in CHROME_PATHS)
+    # elsewhere only the browser bundled by `patchright install chromium`, which CI does not download
+    cache = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or Path.home() / ".cache" / "ms-playwright")
+    return not any(cache.glob("chromium*"))
 
 
 async def in_client_browser(pages: dict[str, str], task: dict, models=None) -> tuple[dict, str]:
