@@ -92,6 +92,7 @@ EN: dict[str, str] = {
     "в сборке нет браузерного модуля": "this build has no browser module",
     "браузер не получил ответ за {seconds} с": "the browser got no answer in {seconds} s",
     "не дождался ответа за {seconds} с": "no answer in {seconds} s",
+    "браузер: {error}": "browser: {error}",  # old journal entries carry failures wrapped this way
     "не прошёл за {rounds} заданий с картинками": "not passed after {rounds} picture tasks",
     "нет моделей для картинок": "no models for pictures",
     "Google считает запросы автоматическими и не показывает задание": "Google treats the requests as automated and shows no task",
@@ -167,6 +168,9 @@ EN: dict[str, str] = {
     "{service} теперь основной.": "{service} is now the main one.",
     "Скопировано.": "Copied.",
     "нечего копировать": "nothing to copy",
+    "не удалось прочитать запасной ключ из Связки ключей — попробуйте ещё раз": "could not read the spare key from the Keychain, try again",
+    "не удалось прочитать основной ключ из Связки ключей — попробуйте ещё раз": "could not read the main key from the Keychain, try again",
+    "Связка ключей не подтвердила запись — попробуйте ещё раз": "the Keychain did not confirm the write, try again",
     "{apps}: приложение держит запущенным.": "{apps}: the app keeps it running.",
     "{apps}: приложение больше не запускает само.": "{apps}: the app no longer starts it.",
     "За {minutes} мин людям ушло {count} капч — похоже, модели перестали отвечать.":

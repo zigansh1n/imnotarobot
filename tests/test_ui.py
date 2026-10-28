@@ -548,3 +548,53 @@ def test_the_journal_comes_back_newest_first(tmp_path):
     for tid, mtime in ((3, 300), (2, 400), (1, 500)):
         os.utime(svc.journal_dir / f"{tid}.json", (mtime, mtime))
     assert [r["id"] for r in Service(cfg).recent] == [3, 2, 1]
+
+
+def test_promote_never_loses_a_key_when_the_keychain_fails_midway(ui, monkeypatch):
+    c, client = ui
+    c.set_human(key="ru-main-key-1")
+    account = c.add_human_account("anticaptcha", "ac-spare-key-9999", "от Васи")
+    spare_slot = f"human:{account.id}"
+    real_set = config.set_secret
+
+    for fail_at in range(1, 5):  # the staging write, the two swaps, the staging clear
+        calls = []
+
+        def flaky_set(slot, value, calls=calls, fail_at=fail_at):
+            calls.append(slot)
+            if len(calls) == fail_at:
+                raise RuntimeError("Связка ключей не сохранила ключ: user denied access")
+            real_set(slot, value)
+
+        monkeypatch.setattr(config, "set_secret", flaky_set)
+        r = client.post("/api/ui/spare-promote", json={"id": account.id})
+        assert r.status_code == 400 and "Связка ключей" in r.json()["error"]
+        # nothing changed: the same main key, the same spare key, the same settings
+        assert (c.cfg.human_provider, c.cfg.human_key_hint, c.cfg.human_note) == ("rucaptcha", "ru-m…ey-1", "")
+        assert [(a.provider, a.hint) for a in c.cfg.human_extra] == [("anticaptcha", "ac-s…9999")]
+        assert config.get_secret("human") == "ru-main-key-1"
+        assert config.get_secret(spare_slot) == "ac-spare-key-9999"
+        assert not config.get_secret("human:swap")  # the staging slot is cleaned up too
+    assert c.service.chain.layer("human").accounts[0].api_key == "ru-main-key-1"
+
+
+def test_promote_aborts_when_a_key_reads_back_empty(ui, monkeypatch):
+    c, client = ui
+    c.set_human(key="ru-main-key-1")
+    account = c.add_human_account("anticaptcha", "ac-spare-key-9999", "от Васи")
+    spare_slot = f"human:{account.id}"
+    real_get, real_set = config.get_secret, config.set_secret
+    written = []
+    monkeypatch.setattr(config, "set_secret", lambda slot, value: written.append(slot) or real_set(slot, value))
+
+    monkeypatch.setattr(config, "get_secret", lambda slot: "" if slot == spare_slot else real_get(slot))
+    r = client.post("/api/ui/spare-promote", json={"id": account.id})
+    assert r.status_code == 400 and r.json()["error"] == "не удалось прочитать запасной ключ из Связки ключей — попробуйте ещё раз"
+
+    # the main slot goes blind while the settings still know a main key: the swap must not run
+    monkeypatch.setattr(config, "get_secret", lambda slot: "" if slot == "human" else real_get(slot))
+    r = client.post("/api/ui/spare-promote", json={"id": account.id})
+    assert r.status_code == 400 and r.json()["error"] == "не удалось прочитать основной ключ из Связки ключей — попробуйте ещё раз"
+    assert not written  # a bad read must not turn into a write that destroys the key
+    assert real_get("human") == "ru-main-key-1" and real_get(spare_slot) == "ac-spare-key-9999"
+    assert (c.cfg.human_provider, len(c.cfg.human_extra)) == ("rucaptcha", 1)

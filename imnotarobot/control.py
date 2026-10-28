@@ -305,21 +305,50 @@ class Controller:
             self._apply()
 
     def promote_human_account(self, account_id: str) -> None:
-        """Makes a spare account the main one; the old main key, service and label take its place."""
+        """Makes a spare account the main one; the old main key, service and label take its place.
+
+        The two secrets swap through a staging slot and every write is read back, so a failure or
+        a crash never leaves a key nowhere. The settings change only after every write has landed;
+        any failure puts the slots back the way they were and leaves the config untouched.
+        """
         with self._lock:
             account = self.human_account(account_id)
-            main_key = config_mod.get_secret("human")
-            # the keys stay in the Keychain under their accounts: the two secrets just swap values
-            config_mod.set_secret("human", config_mod.get_secret(f"human:{account.id}"))
+            spare_slot, stage = f"human:{account.id}", "human:swap"
+            spare_key, main_key = config_mod.get_secret(spare_slot), config_mod.get_secret("human")
+            # an empty read of a slot that should hold a key is a Keychain hiccup, not "no key"
+            if not spare_key:
+                raise ValueError(tr("не удалось прочитать запасной ключ из Связки ключей — попробуйте ещё раз"))
+            if not main_key and self.cfg.human_api_key:
+                raise ValueError(tr("не удалось прочитать основной ключ из Связки ключей — попробуйте ещё раз"))
+            swap = bool(main_key)
+
+            def store(slot: str, value: str) -> None:
+                config_mod.set_secret(slot, value)
+                if config_mod.get_secret(slot) != value:
+                    raise RuntimeError(tr("Связка ключей не подтвердила запись — попробуйте ещё раз"))
+
+            try:
+                if swap:  # staged first: no later write can destroy the only copy of a key
+                    store(stage, main_key)
+                store("human", spare_key)
+                store(spare_slot, main_key)  # "" clears the slot of the account whose key moved up
+                if swap:
+                    store(stage, "")
+            except Exception:
+                try:  # the way it was; even a failing rollback leaves every key in some slot
+                    store(spare_slot, spare_key)
+                    store("human", main_key)
+                    store(stage, "")
+                except Exception:
+                    pass
+                raise
             old = (self.cfg.human_provider, self.cfg.human_note, self.cfg.human_key_hint)
             self.cfg.human_provider, self.cfg.human_note, self.cfg.human_key_hint = account.provider, account.note, account.hint
             self.cfg.human_base_url = HUMAN_PRESETS.get(self.cfg.human_provider, "")
-            if main_key:
-                config_mod.set_secret(f"human:{account.id}", main_key)
+            if swap:
                 account.provider, account.note, account.hint = old
             else:  # no main key to swap in: the account's key has simply moved up
                 self.cfg.human_extra = [a for a in self.cfg.human_extra if a.id != account_id]
-                config_mod.set_secret(f"human:{account.id}", "")
             self.human_status = {}
             self.spare_status.pop(account_id, None)
             self._apply()
