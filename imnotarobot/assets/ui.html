@@ -22,6 +22,9 @@ html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font: 13px/1.45 -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased; overflow: hidden; }
 .num { font-variant-numeric: tabular-nums; }
 .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; word-break: break-all; }
+/* a failure reason reads as text: words and error codes are not cut in the middle */
+#recent td.why { font-size: 12px; overflow-wrap: anywhere; word-break: normal; }
+#recent { overflow-x: auto; }
 .mut { color: var(--mut); }
 a { color: inherit; }
 button, .button { font: inherit; color: var(--fg); background: var(--fill); border: 0; border-radius: 8px; padding: 6px 12px; cursor: default;
@@ -1158,7 +1161,7 @@ function renderJournal(rows) {
     const fail = r.error ? r.error.split("; ").map(l => `<span class="mut">${esc(t(cleanNote(l)).slice(0, 80))}</span>`).join("<br>") : esc(r.answer);
     body += `<tr class="click" data-entry="${r.id}"><td class="num">${hhmm(r.at)}</td><td>${esc(r.typeTitle)}</td>
       <td>${r.error ? '<span class="tag bad">не решена</span>' : esc(shortOf(r.layer, r.layerTitle))}${r.lowConfidence ? ' <span class="tag warn">не уверен</span>' : ""}${r.reported ? ' <span class="tag bad">неверно</span>' : ""}</td>
-      <td class="mono">${fail}</td>
+      <td class="${r.error ? "why" : "mono"}">${fail}</td>
       <td>${r.error ? "" : Math.round(r.confidence * 100) + "%"}</td><td class="num">${r.seconds}</td></tr>`;
   }
   $("recent").innerHTML = list.length ? `<table><tr><th>Когда</th><th>Вид</th><th>Кто решил</th><th>Ответ</th><th>Уверенность</th><th>Секунд</th></tr>` + body + "</table>"
