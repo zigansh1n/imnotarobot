@@ -156,3 +156,10 @@ def test_every_layer_a_captcha_reaches_is_counted():
     solve(chain)
     solve(chain)
     assert chain.sent_since("human", 0) == 2 and chain.sent_since("local", 0) == 2
+
+
+def test_a_total_failure_keeps_its_notes_for_the_journal():
+    chain = Chain([FakeLayer("local", [Unsolvable("нет текста")]), FakeLayer("vlm", [Unsolvable("нет ответа")])])
+    with pytest.raises(Unsolvable) as info:
+        solve(chain)
+    assert info.value.notes == ["local: нет текста", "vlm: нет ответа"]

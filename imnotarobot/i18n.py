@@ -91,7 +91,7 @@ EN: dict[str, str] = {
     "не указан websiteURL": "websiteURL is missing",
     "в сборке нет браузерного модуля": "this build has no browser module",
     "браузер не получил ответ за {seconds} с": "the browser got no answer in {seconds} s",
-    "браузер: {error}": "browser: {error}",
+    "не дождался ответа за {seconds} с": "no answer in {seconds} s",
     "не прошёл за {rounds} заданий с картинками": "not passed after {rounds} picture tasks",
     "нет моделей для картинок": "no models for pictures",
     "Google считает запросы автоматическими и не показывает задание": "Google treats the requests as automated and shows no task",
@@ -164,6 +164,9 @@ EN: dict[str, str] = {
     "Подпись сохранена.": "Label saved.",
     "Запасной ключ {service} работает, баланс {money}.": "The spare {service} key works, balance {money}.",
     "Запасной ключ удалён.": "Spare key removed.",
+    "{service} теперь основной.": "{service} is now the main one.",
+    "Скопировано.": "Copied.",
+    "нечего копировать": "nothing to copy",
     "{apps}: приложение держит запущенным.": "{apps}: the app keeps it running.",
     "{apps}: приложение больше не запускает само.": "{apps}: the app no longer starts it.",
     "За {minutes} мин людям ушло {count} капч — похоже, модели перестали отвечать.":

@@ -149,3 +149,11 @@ def test_tile_model_download_reports_progress_and_rejects_a_bad_file(monkeypatch
         tiles.download(verify=bad)
     assert not tiles.available() and not list((tmp_path / "models").glob("*.part"))
     monkeypatch.setattr(httpx, "stream", real_stream)
+
+
+def test_browser_failures_are_short_and_in_plain_russian():
+    from imnotarobot.layers.browser import short_error
+
+    assert short_error(RuntimeError("Timeout 30000ms exceeded.")) == "не дождался ответа за 30 с"
+    assert short_error(RuntimeError("Locator.click: Timeout 45000ms exceeded.\n=== logs ===")) == "не дождался ответа за 45 с"
+    assert short_error(RuntimeError("net::ERR_CONNECTION_REFUSED at example.com")) == "net::ERR_CONNECTION_REFUSED at example.com"

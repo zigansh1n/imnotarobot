@@ -8,7 +8,8 @@ from PIL import Image
 
 
 class Unsolvable(Exception):
-    pass
+    # the chain's per-step notes, attached by Chain.solve when every layer failed
+    notes: list[str] = []
 
 
 class Unavailable(Unsolvable):

@@ -84,6 +84,8 @@ class Job:
     created: float = field(default_factory=time.monotonic)
     result: Result | None = None
     error: str = ""
+    # the chain's per-step notes when nothing solved the captcha
+    notes: list[str] = field(default_factory=list)
     done: asyncio.Event = field(default_factory=asyncio.Event)
 
 
@@ -113,6 +115,9 @@ class Service:
             self.recent.append(entry["summary"])
         for path in files[JOURNAL_KEEP:]:
             path.unlink(missing_ok=True)
+        # a slow captcha is written later than a newer one, so mtime lies about the order
+        order = sorted(self.recent, key=lambda s: (s.get("at", 0), s.get("id", 0)), reverse=True)
+        self.recent = deque(order, maxlen=self.recent.maxlen)
 
     def journal_entry(self, entry_id: int) -> dict[str, Any] | None:
         path = self.journal_dir / f"{int(entry_id)}.json"
@@ -176,6 +181,7 @@ class Service:
             job.result = await self.chain.solve(job.task)
         except Exception as e:
             job.error = str(e)
+            job.notes = list(getattr(e, "notes", []) or [])
         finally:
             job.done.set()
             r = job.result
@@ -184,7 +190,7 @@ class Service:
                 "layer": r.layer if r else "",
                 "layerTitle": next((x.title for x in self.chain.layers if r and x.name == r.layer), r.layer if r else ""), "confidence": round(r.confidence, 2) if r else 0,
                 "cost": r.cost if r else 0.0, "lowConfidence": bool(r and r.meta.get("low_confidence")),
-                "error": job.error, "notes": (r.meta.get("tried", []) if r else []),
+                "error": job.error, "notes": (r.meta.get("tried", []) if r else job.notes),
                 "answer": _short_answer(r.solution) if r else "", "reported": False,
             }
             self.recent.appendleft(summary)
