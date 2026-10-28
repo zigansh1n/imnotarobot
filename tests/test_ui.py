@@ -81,36 +81,40 @@ def test_bad_key_explains_why(ui, monkeypatch):
 
 def test_saving_a_human_key_checks_it_and_reports_balance_in_roubles(ui, monkeypatch):
     c, client = ui
+    from imnotarobot.layers.human import HumanLayer
 
-    async def balance():
+    async def balance(self, index=0):
         return 200.0
 
-    monkeypatch.setattr(c.service, "balance", balance)
+    monkeypatch.setattr(HumanLayer, "balance", balance)
     r = client.post("/api/ui/human-key", json={"key": "abcd1234efgh"}).json()
     assert r["ok"] and r["message"] == "Ключ работает, баланс 200.00 ₽."
     h = r["state"]["human"]
-    assert (h["currency"], h["hint"], h["hasKey"], h["status"]) == ("₽", "abcd…efgh", True, {"ok": True, "balance": 200.0})
+    assert (h["currency"], h["hint"], h["hasKey"]) == ("₽", "abcd…efgh", True)
+    assert h["status"] == {"ok": True, "balance": 200.0, "provider": "rucaptcha", "currency": "₽", "rate": 1.0}
     assert c.human_line() == "Люди (RuCaptcha): ✓ баланс 200.00 ₽"
 
 
 def test_low_balance_is_flagged(ui, monkeypatch):
     c, client = ui
+    from imnotarobot.layers.human import HumanLayer
 
-    async def balance():
+    async def balance(self, index=0):
         return 12.0
 
-    monkeypatch.setattr(c.service, "balance", balance)
+    monkeypatch.setattr(HumanLayer, "balance", balance)
     client.post("/api/ui/human-key", json={"key": "abcd1234efgh"})
     assert c.human_line().endswith("пора пополнить")
 
 
 def test_rejected_human_key_is_reported(ui, monkeypatch):
     c, client = ui
+    from imnotarobot.layers.human import HumanLayer
 
-    async def balance():
+    async def balance(self, index=0):
         raise RuntimeError("getBalance: ERROR_KEY_DOES_NOT_EXIST")
 
-    monkeypatch.setattr(c.service, "balance", balance)
+    monkeypatch.setattr(HumanLayer, "balance", balance)
     r = client.post("/api/ui/human-key", json={"key": "wrong-key-1"})
     assert r.status_code == 400 and "ERROR_KEY_DOES_NOT_EXIST" in r.json()["error"]
     assert c.human_line().startswith("Люди (RuCaptcha): ⚠")
@@ -118,13 +122,14 @@ def test_rejected_human_key_is_reported(ui, monkeypatch):
 
 def test_limits_save_without_touching_the_key(ui, monkeypatch):
     c, client = ui
+    from imnotarobot.layers.human import HumanLayer
     called = []
 
-    async def balance():
+    async def balance(self, index=0):
         called.append(1)
         return 1.0
 
-    monkeypatch.setattr(c.service, "balance", balance)
+    monkeypatch.setattr(HumanLayer, "balance", balance)
     r = client.post("/api/ui/limits", json={"human": "0", "low": "30", "cloud": "2,5"}).json()
     assert r["ok"] and r["message"] == "Лимиты сохранены: люди — без лимита, модели — $2.50 в день."
     assert (c.cfg.human_daily_limit, c.cfg.human_low_balance, c.cfg.cloud_daily_limit_usd) == (0.0, 30.0, 2.5)
@@ -206,11 +211,12 @@ def test_programs_need_the_access_key(ui):
 
 def test_alerts_for_low_balance_and_limits(ui, monkeypatch):
     c, client = ui
+    from imnotarobot.layers.human import HumanLayer
 
-    async def balance():
+    async def balance(self, index=0):
         return 10.0
 
-    monkeypatch.setattr(c.service, "balance", balance)
+    monkeypatch.setattr(HumanLayer, "balance", balance)
     client.post("/api/ui/human-key", json={"key": "abcd1234efgh"})
     c.cfg.cloud_daily_limit_usd = 0.001
     c.service.chain.state.answered("k", "vlm:x", 0.002)

@@ -139,7 +139,8 @@ def human_mock(main_answer, calls):
 
 
 def human_layer(main_answer, calls, **kw):
-    return HumanLayer("https://main.test", "main", poll_interval=0, transport=human_mock(main_answer, calls),
+    kw.setdefault("poll_interval", 0)
+    return HumanLayer("https://main.test", "main", transport=human_mock(main_answer, calls),
                       spares=[Account("https://spare.test", "spare", "Anti-Captcha")], **kw)
 
 
@@ -197,6 +198,78 @@ def test_human_errors_while_polling_stop_at_the_first_account(code):
     with pytest.raises(Unsolvable, match=code):
         run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
     assert [h for h, _ in calls] == ["main.test", "main.test"]
+
+
+@pytest.mark.parametrize("code", sorted(ACCOUNT_ERRORS))
+def test_human_account_errors_while_polling_stop_at_the_first_account(code):
+    # the account failed only after the task was accepted: moving on could mean a second payment
+    calls: list[tuple[str, str]] = []
+
+    def main_answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.strip("/") == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        return httpx.Response(200, json={"errorId": 1, "errorCode": code})
+
+    layer = human_layer(main_answer, calls)
+    with pytest.raises(Unsolvable, match=code):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert [h for h, _ in calls] == ["main.test", "main.test"]
+
+
+def test_human_http_5xx_while_polling_stops_without_a_fallback():
+    # the service answered and refused: no second attempt on another account
+    calls: list[tuple[str, str]] = []
+
+    def main_answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.strip("/") == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        return httpx.Response(502, text="Bad Gateway")
+
+    layer = human_layer(main_answer, calls)
+    with pytest.raises(Unsolvable, match="HTTP 502"):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert [h for h, _ in calls] == ["main.test", "main.test"]
+
+
+@pytest.mark.parametrize("answer", [
+    httpx.ConnectError("no route to host"),
+    httpx.Response(200, text="<html>proxy error</html>"),
+], ids=["network", "non-json"])
+def test_human_keeps_polling_through_lost_answers_after_acceptance(answer):
+    # the workers may still solve and charge for an accepted task: a lost answer keeps it polling
+    calls: list[tuple[str, str]] = []
+
+    def main_answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.strip("/") == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    layer = human_layer(main_answer, calls, timeout=0.15, poll_interval=0.05)
+    with pytest.raises(Unsolvable, match="нет ответа"):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert {h for h, _ in calls} == {"main.test"}  # the spare was never asked
+
+
+def test_human_survives_a_lost_answer_while_polling():
+    # one lost poll, then the answer arrives: the same account still solves it
+    calls: list[tuple[str, str]] = []
+    polls = iter([httpx.ConnectError("no route to host"),
+                  httpx.Response(200, json={"errorId": 0, "status": "ready", "solution": {"text": "ok"}, "cost": "0.002"})])
+
+    def main_answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.strip("/") == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        answer = next(polls)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    layer = human_layer(main_answer, calls)
+    r = run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert r.solution == {"text": "ok"}
+    assert [h for h, _ in calls] == ["main.test"] * 3
 
 
 def test_human_poll_timeout_after_acceptance_does_not_fall_back():

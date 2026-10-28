@@ -116,7 +116,7 @@ def test_legacy_rejects_unknown_method():
 def test_legacy_getbalance_answers_in_both_formats():
     with make([FakeLayer("local", [("a", 1.0)])], client_key="secret") as c:
         async def balance():
-            return 12.5
+            return 12.5, "₽"
 
         c.app.state.service.balance = balance
         assert c.get("/res.php", params={"key": "secret", "action": "getbalance"}).text == "12.50000"
@@ -129,17 +129,44 @@ def test_legacy_userinfo_lets_the_extension_log_in():
     """The extension's Login button checks the key with res.php?action=userinfo."""
     with make([FakeLayer("local", [("a", 1.0)])], client_key="secret") as c:
         async def balance():
-            return 200.0
+            return 200.0, "₽"
 
         c.app.state.service.balance = balance
         r = c.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()
         assert r["status"] == 1
         assert r["request"]["key_type"] == "customer"  # anything else the extension calls a worker key
         assert (r["request"]["balance"], r["request"]["valute"]) == ("200.00", "RUB")  # roubles: rucaptcha is the default
-        with make([FakeLayer("local", [("a", 1.0)])], client_key="secret", human_provider="2captcha") as c2:
-            c2.app.state.service.balance = balance
-            assert c2.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()["request"]["valute"] == "USD"
         assert c.get("/res.php", params={"key": "nope", "action": "userinfo"}).text == "ERROR_KEY_DOES_NOT_EXIST"
+
+
+def test_legacy_login_and_balance_ask_the_account_that_has_a_key():
+    """With no main key the first spare answers, in its own currency — solving works, so must login."""
+    import httpx
+    from imnotarobot.config import HumanAccount
+    from imnotarobot.layers import HumanLayer
+    from imnotarobot.layers.human import Account
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "spare.test"
+        return httpx.Response(200, json={"errorId": 0, "balance": 12.5})
+
+    spare = HumanAccount(id="ab12", provider="anticaptcha")
+    layer = HumanLayer("https://main.test", "", transport=httpx.MockTransport(handler),
+                       spares=[Account("https://spare.test", "spare-key")])
+    with make([layer], client_key="secret", human_extra=[spare]) as c:
+        r = c.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()
+        assert (r["status"], r["request"]["balance"], r["request"]["valute"]) == (1, "12.50", "USD")
+        assert c.get("/res.php", params={"key": "secret", "action": "getbalance"}).text == "12.50000"
+        assert c.post("/getBalance", json={"clientKey": "secret"}).json()["balance"] == 12.5
+    # a dollar main account is labelled dollars the same way
+    def main_handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "main.test"
+        return httpx.Response(200, json={"errorId": 0, "balance": 12.5})
+
+    layer = HumanLayer("https://main.test", "main-key", transport=httpx.MockTransport(main_handler))
+    with make([layer], client_key="secret", human_provider="2captcha") as c:
+        r = c.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()
+        assert (r["request"]["balance"], r["request"]["valute"]) == ("12.50", "USD")
 
 
 class SlowLayer(FakeLayer):

@@ -80,7 +80,8 @@ def create_app(cfg: Config | None = None, layers: list[Layer] | None = None,
         if isinstance(body, JSONResponse):
             return body
         try:
-            return {"errorId": 0, "balance": await svc.balance()}
+            balance, _ = await svc.balance()
+            return {"errorId": 0, "balance": balance}
         except Exception as e:
             return _error("ERROR_UPSTREAM", str(e))
 

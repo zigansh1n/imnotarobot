@@ -41,7 +41,7 @@ CAPTCHA_ERRORS = frozenset({
 
 
 class AccountError(Unsolvable):
-    """The account or its service failed: the next account may still take the captcha."""
+    """The account or its service failed: before the task was accepted, the next account may take it."""
 
 
 class CaptchaError(Unsolvable):
@@ -49,14 +49,10 @@ class CaptchaError(Unsolvable):
 
 
 def _worth_another_account(e: Exception, accepted: bool) -> bool:
-    """A failure of the account or its service is worth the next account; a failure of the captcha
-    would only repeat, and a task the service has already accepted may still be solved and paid for."""
-    if isinstance(e, AccountError):
-        return True
-    if isinstance(e, CaptchaError):
-        return False
-    # a network error or a non-JSON answer is the service's too, and so is anything before the task is accepted
-    return isinstance(e, (httpx.HTTPError, ValueError)) or not accepted
+    """A failure is worth the next account only before the service accepted the task: once it has,
+    the task may still be solved and charged for, so no failure may move on. A failure of the
+    captcha itself never moves on: the next account would only repeat it."""
+    return not accepted and not isinstance(e, CaptchaError)
 
 
 @dataclass
@@ -71,8 +67,9 @@ class Account:
 class HumanLayer(Layer):
     """2Captcha / RuCaptcha / Anti-Captcha API v2: workers plus their own AI, the last resort.
 
-    Spare accounts are tried in order when the main one fails as an account or a service;
-    a captcha failure stops at the first one, so a task is never paid for twice.
+    Spare accounts are tried in order while the main one fails as an account or a service and has
+    not taken the captcha yet; once a service has accepted it, no failure moves on to a spare,
+    so a task is never paid for twice.
     """
 
     name = "human"
@@ -123,7 +120,8 @@ class HumanLayer(Layer):
             try:
                 return await self._solve(task, i, account)
             except (Unsolvable, httpx.HTTPError, ValueError) as e:
-                # a captcha failure stops here: the next account could mean a second payment
+                # only failures from before the task was accepted arrive as AccountError here:
+                # anything else stops, the next account could mean a second payment
                 if len(ready) == 1 or not isinstance(e, AccountError):
                     raise Unsolvable(str(e)) from e
                 errors.append(f"{account.label or account.base_url}: {e}")
@@ -139,14 +137,20 @@ class HumanLayer(Layer):
                 deadline = time.monotonic() + self.timeout
                 while time.monotonic() < deadline:
                     await asyncio.sleep(self.poll_interval)
-                    j = await self._post(client, "getTaskResult", {"taskId": task_id}, account)
+                    try:
+                        j = await self._post(client, "getTaskResult", {"taskId": task_id}, account)
+                    except (httpx.HTTPError, ValueError):
+                        # the task is with the workers already: a lost answer must not drop it,
+                        # and the next account would mean a second payment — keep asking instead
+                        continue
                     if j.get("status") == "ready":
                         return Result(j["solution"], 1.0, self.name, cost=float(j.get("cost") or 0) * account.rate,
                                       meta={"remote_task_id": task_id, "account": index})
             except (Unsolvable, httpx.HTTPError, ValueError) as e:
                 if _worth_another_account(e, accepted):
                     raise AccountError(str(e)) from e
-                raise
+                # the service has the task already, or the captcha itself failed: no moving on
+                raise Unsolvable(str(e)) from e
         raise Unsolvable(tr("нет ответа от {url} за {seconds} с", url=account.base_url, seconds=f"{self.timeout:.0f}"))
 
     async def report_incorrect(self, result: Result) -> None:
