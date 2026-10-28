@@ -8,8 +8,6 @@
 # - /usr/bin/codesign must be allowed to use the private key (security import -T /usr/bin/codesign);
 # - trust is NOT needed for signing: an untrusted identity is only listed by
 #   `security find-identity -p codesigning` without -v, but codesign -s takes it all the same;
-# - `security add-trusted-cert` in the user's own store needs no password, while the admin store
-#   (-d) needs one — and silently changes nothing without it — so only the user store is used.
 set -e
 
 NAME="ImNotARobot Local"
@@ -42,10 +40,8 @@ if ! security import "$TMP/cert.p12" -k "$LOGIN" -P "$PASS" -T /usr/bin/codesign
   exit 1
 fi
 
-# not needed for signing, but this makes the identity count as valid for codesign tooling
-if ! security add-trusted-cert -r trustRoot -p codeSign "$TMP/cert.pem"; then
-  echo "note: could not mark the certificate trusted; signing works without it too."
-fi
+# The certificate is deliberately NOT added to the trust settings: signing works without it, and a
+# root trusted for code signing whose key sits in the login keychain would be a weaker Mac for no gain.
 
 security find-identity -p codesigning "$LOGIN" | grep "\"$NAME\"" || true
 echo "created \"$NAME\" in $LOGIN; packaging/build.sh now signs builds with it."
