@@ -216,11 +216,8 @@ class Controller:
             if layer_id in self.cfg.layers:
                 self.cfg.layers.remove(layer_id)
             else:
-                # keeps the user's order: the layer goes before the first enabled layer that follows it by default
-                order = [i for i, _, _ in self.layer_items()]
-                after = order[order.index(layer_id) + 1:] if layer_id in order else []
-                at = next((self.cfg.layers.index(i) for i in after if i in self.cfg.layers), len(self.cfg.layers))
-                self.cfg.layers.insert(at, layer_id)
+                # a switched-off row is shown after the enabled ones, so switching it on puts it there
+                self.cfg.layers.append(layer_id)
             self._apply()
 
     def add_model(self, name: str, provider: str, model: str, key: str, base_url: str = "") -> ModelSpec:

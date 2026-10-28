@@ -160,8 +160,9 @@ def test_layers_move_and_toggle(ui):
     assert c.cfg.layers == ["human", "local", "browser"]
     r = client.post("/api/ui/toggle-layer", json={"id": "local"}).json()
     assert [(x["id"], x["enabled"]) for x in r["state"]["layers"]] == [("human", True), ("browser", True), ("local", False)]
+    # a switched-off row is shown after the enabled ones, so switching it on puts it there
     client.post("/api/ui/toggle-layer", json={"id": "local"})
-    assert c.cfg.layers == ["human", "local", "browser"]
+    assert c.cfg.layers == ["human", "browser", "local"]
 
 
 def test_key_left_by_an_older_build_asks_to_be_entered_again(tmp_path, monkeypatch):
@@ -222,6 +223,9 @@ def test_alerts_for_low_balance_and_limits(ui, monkeypatch):
     c.service.chain.state.answered("k", "vlm:x", 0.002)
     ids = [a for a, _ in c.alerts()]
     assert "low-balance" in ids and "cloud-limit" in ids
+    # the menu bar panel shows the same warnings as one compact line
+    texts = [a["text"] for a in client.get("/api/ui/state").json()["alerts"]]
+    assert any("пора пополнить" in x for x in texts) and any("исчерпан дневной лимит" in x for x in texts)
 
 
 def test_panel_asks_the_app_to_open_the_window_or_quit(ui):

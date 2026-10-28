@@ -98,6 +98,7 @@ def state(c: "Controller") -> dict[str, Any]:
         return {
             "paused": c.service.paused, "address": c.address, "startAtLogin": c.starts_at_login(),
             "permissions": c.permission_warnings(),
+            "alerts": [{"id": i, "text": text} for i, text in c.alerts()],
             "today": {"solved": int(sum(v.get("solved", 0) for v in day.values())),
                       "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
             "layers": layers,

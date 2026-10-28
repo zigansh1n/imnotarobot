@@ -43,13 +43,14 @@ def test_bad_input_is_refused(ctl):
         ctl.set_human(daily_limit=-1)
 
 
-def test_toggling_layers_keeps_order_and_survives_reload(ctl):
+def test_a_layer_switched_on_joins_the_order_where_it_is_shown(ctl):
     ctl.add_model("q", "dashscope", "qwen3-vl-plus", "k")
     ctl.toggle_layer("local")
     assert ctl.cfg.layers == ["vlm:q", "browser", "human"]
+    # the off row is shown after the enabled ones, so switching it back on puts it there
     ctl.toggle_layer("local")
-    assert ctl.cfg.layers == ["local", "vlm:q", "browser", "human"]
-    assert Config.load().layers == ["local", "vlm:q", "browser", "human"]
+    assert ctl.cfg.layers == ["vlm:q", "browser", "human", "local"]
+    assert Config.load().layers == ["vlm:q", "browser", "human", "local"]
 
 
 def test_human_settings(ctl):

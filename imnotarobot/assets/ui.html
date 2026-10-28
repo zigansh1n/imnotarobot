@@ -50,7 +50,7 @@ input:focus, select:focus { outline: 3px solid var(--glow); outline-offset: -1px
 .orb.paused .glow { animation-play-state: paused; filter: blur(var(--blur, 26px)) grayscale(1); opacity: .35; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 50% { opacity: .55; transform: scale(.93) rotate(180deg); } }
-@media (prefers-reduced-motion: reduce) { .orb .glow, .spark { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .orb .glow, .spark { animation: none !important; } .layer, .layer.settle { transition: none; } }
 
 /* ---------- window ---------- */
 #app { display: grid; grid-template-columns: 210px 1fr; height: 100%; }
@@ -103,18 +103,26 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
 .step.hot .dot { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: 0 0 18px var(--glow); }
 .step .name { color: var(--fg2); overflow: hidden; text-overflow: ellipsis; max-width: 100%; white-space: nowrap; }
 .step small { display: block; color: var(--mut); }
-.list .row2 { display: grid; grid-template-columns: 64px 1fr minmax(120px, 190px) 22px; gap: 10px; padding: 10px 0; align-items: center;
+.path .step, .path .empty { cursor: default; }
+.path .step:hover .name, .path .empty:hover { color: var(--fg); }
+.list .row2 { display: grid; grid-template-columns: 86px 1fr minmax(120px, 190px) 22px; gap: 10px; padding: 10px 0; align-items: center;
   border-top: .5px solid var(--line2); cursor: default; }
 .list .row2:hover { background: linear-gradient(90deg, transparent, var(--fill) 20%, var(--fill) 80%, transparent); }
 .list .t { color: var(--mut); } .list .r { text-align: right; color: var(--mut); }
 
 /* path view */
 .layers { border: .5px solid var(--line); border-radius: 14px; overflow: hidden; }
+.layers.dragactive { overflow: visible; } /* the lifted row's shadow must not be clipped at the box edge */
 .layer { display: grid; grid-template-columns: 18px 30px 1fr auto auto; gap: 14px; align-items: center; padding: 13px 18px;
-  border-top: .5px solid var(--line2); background: var(--bg); transition: opacity .2s, background .2s; }
+  border-top: .5px solid var(--line2); background: var(--bg); transition: opacity .2s, background .2s, transform .15s ease; }
 .layer:first-child { border-top: 0; }
-.layer.drag { opacity: .4; } .layer.over { background: var(--fill); }
-.grip { color: var(--mut); opacity: .5; cursor: grab; font-size: 13px; letter-spacing: -2px; user-select: none; }
+.layer:not(.off) { cursor: grab; } .layer .switch { cursor: default; }
+.layer:focus { outline: none; } .layer:focus-visible { background: var(--fill); }
+.grip { color: var(--mut); opacity: .5; cursor: grab; font-size: 13px; letter-spacing: -2px; user-select: none; transition: opacity .15s; }
+.layer:not(.off):hover .grip { opacity: 1; }
+.layer.dragging, .layer.settle { position: relative; z-index: 5; box-shadow: 0 12px 32px rgba(0,0,0,.24), 0 0 0 .5px var(--line); }
+.layer.dragging { transition: none; } .layer.settle { transition: transform .15s ease; }
+body.grabbing, body.grabbing * { cursor: grabbing !important; user-select: none; }
 .layer .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; border: 1px solid var(--line); }
 .layer.hot .dot { background: var(--ink); color: var(--on-ink); border-color: var(--ink); box-shadow: 0 0 16px var(--glow); }
 .layer b { font-weight: 500; display: block; }
@@ -130,11 +138,13 @@ h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
 .switch input:checked + span:after { transform: translateX(14px); background: var(--on-ink); }
 .now { margin-top: 14px; color: var(--mut); font-size: 12px; display: flex; gap: 8px; align-items: center; }
 .now .orb { width: 16px; height: 16px; --blur: 4px; --inset: 22%; }
-.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+/* limits: one settings row per limit, the controls on one right edge */
+.lim { display: grid; grid-template-columns: 110px 18px 34px; gap: 6px; align-items: center; }
+.lim input { width: 100%; }
+.lim .cur { color: var(--mut); }
+.lim input:disabled { opacity: .55; }
 /* layout rules such as .row set display, which would otherwise show hidden elements */
 [hidden] { display: none !important; }
-.limits label[hidden] { display: none; }
-label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mut); }
 
 /* keys */
 .key { border: .5px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-top: 10px; }
@@ -198,6 +208,10 @@ body.pop #app { display: none; } body.pop #pop { display: flex; }
 #pop .st small { display: block; color: var(--mut); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #pop .st .r { text-align: right; font-size: 12px; color: var(--mut); white-space: nowrap; }
 #pop .st.hot .r { color: var(--fg); }
+#pop .offmore { padding: 7px 0 6px 34px; color: var(--mut); font-size: 12px; cursor: default; }
+#pop .offmore:hover { color: var(--fg); }
+#pop .warn { display: flex; gap: 6px; align-items: baseline; padding: 0 6px; color: var(--warn); font-size: 12px; }
+#pop .warn .txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #pop .hint { color: var(--mut); font-size: 11px; margin: -2px 6px 0; }
 #pop .runlabel { font-size: 12px; color: var(--mut); }
 /* the panel is translucent: tiles stay readable on light, dark and wallpaper-tinted backgrounds */
@@ -268,15 +282,17 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
       <div class="label">Быстрая reCAPTCHA</div>
       <div class="panel" id="tilesPanel"></div>
       <div class="label">Лимиты на день</div>
-      <div class="panel">
-        <div class="sub">0 — без лимита. Когда лимит исчерпан, ступень пропускается до конца дня и приходит уведомление.</div>
-        <form id="limitsForm" class="limits">
-          <label class="field"><span>Облачные модели, $</span><input id="limCloud" type="text" inputmode="decimal"></label>
-          <label class="field"><span>Люди, <span id="limCur1">₽</span></span><input id="limHuman" type="text" inputmode="decimal"></label>
-          <label class="field"><span>Баланс для предупреждения, <span id="limCur2">₽</span></span><input id="limLow" type="text" inputmode="decimal"></label>
-          <label class="field" id="limRateField" hidden><span>Курс доллара, ₽</span><input id="limRate" type="text" inputmode="decimal"></label>
-          <button class="primary">Сохранить</button>
-        </form>
+      <div class="panel" id="limitsPanel">
+        <div class="kv"><div><b>Облачные модели в день</b><br><span class="mut">Исчерпан — модели пропускаются до конца дня.</span></div>
+          <div class="lim"><input id="limCloud" data-limit="cloud" type="text" inputmode="decimal" placeholder="Без лимита"><span class="cur">$</span>
+            <label class="switch" title="Без лимита"><input type="checkbox" id="limCloudNo" data-limit-no="cloud"><span></span></label></div></div>
+        <div class="kv"><div><b>Люди в день</b><br><span class="mut">Исчерпан — капчи людям не уходят до конца дня.</span></div>
+          <div class="lim"><input id="limHuman" data-limit="human" type="text" inputmode="decimal" placeholder="Без лимита"><span class="cur" id="limCur1">₽</span>
+            <label class="switch" title="Без лимита"><input type="checkbox" id="limHumanNo" data-limit-no="human"><span></span></label></div></div>
+        <div class="kv"><div><b>Предупредить, когда баланс ниже</b><br><span class="mut">При остатке ниже этой суммы придёт уведомление.</span></div>
+          <div class="lim"><input id="limLow" data-limit="low" type="text" inputmode="decimal"><span class="cur" id="limCur2">₽</span></div></div>
+        <div class="kv" id="limRateRow" hidden><div><b>Курс доллара</b><br><span class="mut">По нему пересчитываются запасные ключи в другой валюте.</span></div>
+          <div class="lim"><input id="limRate" data-limit="rate" type="text" inputmode="decimal"><span class="cur">₽</span></div></div>
         <div class="mut" id="limitsState" style="margin-top:10px;font-size:12px"></div>
       </div>
     </section>
@@ -377,12 +393,13 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
 
 <div id="pop">
   <div class="head"><svg class="logo"><use href="#logo"/></svg><b>Я не робот</b>
-    <span class="runlabel" id="popRunLabel">Работает</span>
-    <label class="switch" title="Пауза для всей программы"><input type="checkbox" id="popRun"><span></span></label></div>
+    <span class="runlabel" id="popRunLabel">…</span>
+    <label class="switch" title="Пауза для всей программы" hidden><input type="checkbox" id="popRun"><span></span></label></div>
   <div class="big">
     <div class="orb" id="popOrb"><div class="glow"></div><div class="core"></div><div class="in"><b class="num" id="popSolved">0</b></div></div>
     <div class="txt"><b>решено сегодня</b><span id="popSub"></span></div>
   </div>
+  <div class="warn" id="popWarn" hidden></div>
   <div class="label">Как решается капча</div>
   <div class="steps" id="popSteps"></div>
   <div class="upd" id="popUpdate" hidden></div>
@@ -407,6 +424,14 @@ const money = (v, cur) => cur === "₽" ? (v || 0).toFixed(v && v < 10 ? 1 : 0).
 const EFFORTS = {none: "нет", low: "мало", medium: "средне", high: "много", default: "как у поставщика"};
 const ago = at => { const s = Math.round(Date.now() / 1000 - at); return s < 60 ? "только что" : s < 3600 ? Math.round(s / 60) + " мин назад" : new Date(at * 1000).toLocaleString(LOCALE()); };
 const hhmm = at => new Date(at * 1000).toLocaleTimeString(LOCALE(), {hour: "2-digit", minute: "2-digit"});
+// entries older than today carry their date, so "вчера 21:14" reads at a glance
+const when = at => {
+  const d = new Date(at * 1000), today = new Date();
+  if (d.toDateString() === today.toDateString()) return hhmm(at);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "вчера " + hhmm(at);
+  return d.toLocaleDateString(LOCALE(), {day: "numeric", month: "short"}) + " " + hhmm(at);
+};
 
 
 // ---------- language: follows the system, like the theme ----------
@@ -428,9 +453,14 @@ const EN = {
   "Последние": "Recent", "Пока ни одной.": "None yet.",
   "Все ступени выключены — включите их в разделе «Путь капчи».": "All steps are off, turn them on in «Captcha path».",
   "Капча идёт сверху вниз, пока кто-то не решит. Перетащите строку, чтобы поменять порядок.": "A captcha goes top to bottom until a step solves it. Drag a row to change the order.",
-  "Лимиты на день": "Daily limits", "0 — без лимита. Когда лимит исчерпан, ступень пропускается до конца дня и приходит уведомление.":
-    "0 means no limit. When a limit is used up, the step is skipped until the end of the day and you get a notification.",
-  "Облачные модели, $": "Cloud models, $", "Люди,": "Humans,", "Баланс для предупреждения,": "Warn when the balance is below,", "Курс доллара, ₽": "Dollar rate, ₽", "Сохранить": "Save",
+  "Лимиты на день": "Daily limits",
+  "Облачные модели в день": "Cloud models per day", "Люди в день": "Humans per day",
+  "Предупредить, когда баланс ниже": "Warn when the balance is below", "Курс доллара": "Dollar rate",
+  "Исчерпан — модели пропускаются до конца дня.": "Used up — the models are skipped until the end of the day.",
+  "Исчерпан — капчи людям не уходят до конца дня.": "Used up — captchas are not sent to humans until the end of day.",
+  "При остатке ниже этой суммы придёт уведомление.": "A notification arrives when the remainder is below this amount.",
+  "По нему пересчитываются запасные ключи в другой валюте.": "Spare keys in another currency are converted at this rate.",
+  "Без лимита": "No limit",
   "Своя модель": "Local model", "Браузер": "Browser", "текст и слайдеры · мгновенно": "text and sliders · instant",
   "галочки reCAPTCHA, hCaptcha, Turnstile": "reCAPTCHA, hCaptcha, Turnstile checkboxes", "люди · платно": "humans · paid",
   "картинки, сетки, клики": "pictures, grids, clicks", "нет ключа": "no key", "нужен Google Chrome": "needs Google Chrome",
@@ -525,6 +555,9 @@ const RULES = [
   [/^(.+): ответ принят \((\d+)%\)$/m, "$1: answer accepted ($2%)"],
   [/^Вышла версия (\S+)( — обновить)?$/, (m, v, u) => `Version ${v} is out${u ? " — update" : ""}`],
   [/^Скачиваю версию (\S+): (\d+)%$/, "Downloading version $1: $2%"], [/^Не удалось обновить: (.+)$/s, (m, e) => `Could not update: ${t(e)}`],
+  [/^вчера (.+)$/, "yesterday $1"],
+  [/^ещё (\d+) выключено$/, "$1 more off"], [/^ещё (\d+)$/, "and $1 more"],
+  [/^люди · платно · запасной: (.+)$/, "humans · paid · spare: $1"], [/^люди · платно · запасные: (.+)$/, "humans · paid · spares: $1"],
 ];
 function t(s) {
   if (LANG !== "en" || !s) return s;
@@ -580,8 +613,18 @@ function ask(text, yes) {
   });
 }
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") { if (ask.close) ask.close(false); $("entryBox").hidden = true; }
+  if (e.key === "Escape") { if (drag) cancelDrag(); else { if (ask.close) ask.close(false); $("entryBox").hidden = true; } }
   if (e.key === "Enter" && ask.close && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); ask.close(true); }
+  if (e.key === "Enter" && e.target.dataset?.limit) { e.preventDefault(); e.target.blur(); }
+  // Alt + an arrow moves the focused row, for those who prefer the keyboard
+  if (e.altKey && !drag && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    const row = document.activeElement?.closest?.(".layer");
+    if (!row || row.classList.contains("off")) return;
+    const rows = enabledRows();
+    if ((e.key === "ArrowUp" && row === rows[0]) || (e.key === "ArrowDown" && row === rows[rows.length - 1])) return;
+    e.preventDefault();
+    api("move-layer", {id: row.dataset.id, step: e.key === "ArrowUp" ? -1 : 1});
+  }
 });
 
 function show(view) {
@@ -615,7 +658,11 @@ function shortTitle(l) {
 function layerNote(l) {
   if (l.id === "local") return "текст и слайдеры · мгновенно";
   if (l.id === "browser") return "галочки reCAPTCHA, hCaptcha, Turnstile";
-  if (l.id === "human") return "люди · платно";
+  if (l.id === "human") {
+    // the chain the humans step really goes through: the main service, then the spares
+    const names = (S.human.spares || []).map(a => a.note ? `${a.title} (${a.note})` : a.title);
+    return names.length ? `люди · платно · запасн${names.length > 1 ? "ые" : "ой"}: ${names.join(", ")}` : "люди · платно";
+  }
   return "картинки, сетки, клики";
 }
 // the panel is narrow: one or two words per step
@@ -669,7 +716,7 @@ function render(s) {
     sp.style.setProperty("--from", `calc(${w / 2}% - 4px)`); sp.style.setProperty("--to", `calc(${w * i + w / 2}% - 4px)`);
     sp.classList.add("go");
   }
-  $("todayRecent").innerHTML = s.recent.length ? s.recent.slice(0, 4).map(r => `<div class="row2" data-entry="${r.id}"><span class="t num">${hhmm(r.at)}</span>
+  $("todayRecent").innerHTML = s.recent.length ? s.recent.slice(0, 4).map(r => `<div class="row2" data-entry="${r.id}"><span class="t num">${esc(when(r.at))}</span>
       <span>${esc(r.typeTitle)}</span><span class="mut">${r.error ? "не решена" : esc(shortOf(r.layer, r.layerTitle))} · ${dec(r.seconds)} с</span>
       <span class="r">${r.error ? "✕" : r.reported ? "!" : "✓"}</span></div>`).join("") : '<div class="empty">Пока ни одной.</div>';
 
@@ -704,33 +751,108 @@ function renderUpdate(u) {
 function shortOf(id, title) { const l = S.layers.find(x => x.id === id); return l ? shortTitle(l) : (title || id); }
 
 function renderLayers(s, on, hotId) {
-  if (document.querySelector(".layer.drag")) return;
+  if (drag) return;  // a drag (or its settling) owns the list; the periodic refresh must not redraw it
+  // the redraw replaces the rows, so a row focused for keyboard reordering takes its focus back
+  const again = document.activeElement?.classList?.contains("layer") ? document.activeElement.dataset.id : null;
   let n = 0;
   $("layers").innerHTML = s.layers.map(l => {
     const num = l.enabled ? ++n : "–";
     const meta = !l.ready && l.enabled ? `<span class="tag warn">${esc(l.why)}</span>` : l.id === "human" && s.human.limit ? `${solvedBy(l.id)} сегодня · лимит ${money(s.human.limit, s.human.currency)}` : `${solvedBy(l.id)} сегодня`;
-    return `<div class="layer ${l.enabled ? "" : "off"} ${l.id === hotId ? "hot" : ""}" data-id="${esc(l.id)}" draggable="${l.enabled}">
+    return `<div class="layer ${l.enabled ? "" : "off"} ${l.id === hotId ? "hot" : ""}" data-id="${esc(l.id)}"${l.enabled ? ' tabindex="0"' : ""}>
       <span class="grip">⋮⋮</span><div class="dot">${num}</div>
       <div><b title="${esc(l.title)}">${esc(shortTitle(l))}</b><small>${esc(layerNote(l))}${l.id.startsWith("vlm:") ? " · " + esc(l.title.split(" · ").map((x, i) => i ? x : modelName(x)).join(" · ")) : ""}</small></div>
       <span class="meta num">${meta}</span>
       <label class="switch"><input type="checkbox" data-layer="${esc(l.id)}" ${l.enabled ? "checked" : ""}><span></span></label></div>`;
   }).join("");
+  if (again) { const r = $("layers").querySelector(`.layer[data-id="${CSS.escape(again)}"]`); if (r) r.focus(); }
   const hot = s.layers.find(l => l.id === hotId);
   $("nowSolving").innerHTML = hot ? `<div class="orb"><div class="glow"></div><div class="core"></div></div>Последнюю капчу решила ступень «${esc(shortTitle(hot))}»` : "";
 }
 
-let dragId = null;
-document.addEventListener("dragstart", e => { const r = e.target.closest?.(".layer"); if (!r) return; dragId = r.dataset.id; r.classList.add("drag"); e.dataTransfer.effectAllowed = "move"; });
-document.addEventListener("dragover", e => { const r = e.target.closest?.(".layer"); if (!r || !dragId) return; e.preventDefault();
-  document.querySelectorAll(".layer.over").forEach(x => x.classList.remove("over")); r.classList.add("over"); });
-document.addEventListener("dragend", () => { document.querySelectorAll(".layer").forEach(x => x.classList.remove("drag", "over")); dragId = null; });
-document.addEventListener("drop", e => {
-  const r = e.target.closest?.(".layer"); if (!r || !dragId) return; e.preventDefault();
-  const order = S.layers.filter(l => l.enabled).map(l => l.id);
-  const from = order.indexOf(dragId), to = order.indexOf(r.dataset.id);
-  const id = dragId; document.querySelectorAll(".layer").forEach(x => x.classList.remove("drag", "over")); dragId = null;
-  if (from >= 0 && to >= 0 && from !== to) api("move-layer", {id, step: to - from});
+// ---------- reordering the path with pointer events, like a native macOS list ----------
+let drag = null;  // {id, row, rows, tops, from, to, y0, x0, pointer, started, cancelled}
+const enabledRows = () => [...$("layers").querySelectorAll(".layer:not(.off)")];
+
+// a few pixels of press-and-move lifts the row; a plain press or one on the switch stays a click
+document.addEventListener("pointerdown", e => {
+  if (drag || e.button !== 0 || e.target.closest(".switch, button, a, input, select")) return;
+  const row = e.target.closest(".layer");
+  if (!row || row.classList.contains("off")) return;
+  drag = {id: row.dataset.id, row, y0: e.clientY, x0: e.clientX, pointer: e.pointerId, started: false};
 });
+document.addEventListener("pointermove", e => {
+  if (!drag || e.pointerId !== drag.pointer || drag.cancelled) return;
+  if (!drag.started) {
+    if (Math.abs(e.clientY - drag.y0) < 4 && Math.abs(e.clientX - drag.x0) < 4) return;
+    const rows = enabledRows();
+    drag.rows = rows;
+    drag.from = rows.indexOf(drag.row);
+    drag.tops = rows.map(r => r.offsetTop);
+    drag.min = drag.tops[0] - drag.tops[drag.from];  // clamped to the enabled rows
+    drag.max = drag.tops[drag.tops.length - 1] - drag.tops[drag.from];
+    drag.to = drag.from;
+    drag.started = true;
+    drag.row.classList.add("dragging");
+    $("layers").classList.add("dragactive");
+    document.body.classList.add("grabbing");
+    getSelection().removeAllRanges();
+    try { drag.row.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  const dy = Math.max(drag.min, Math.min(drag.max, e.clientY - drag.y0));
+  drag.row.style.transform = `translateY(${dy}px) scale(1.02)`;
+  // the slot whose top the lifted row has come closest to
+  const top = drag.tops[drag.from] + dy;
+  let to = drag.from, best = Infinity;
+  drag.tops.forEach((t, i) => { const d = Math.abs(t - top); if (d < best) { best = d; to = i; } });
+  if (to === drag.to) return;
+  drag.to = to;
+  // the rows between the old and the new slot slide out of the way
+  drag.rows.forEach((r, i) => {
+    if (i === drag.from) return;
+    const y = to > drag.from && i > drag.from && i <= to ? drag.tops[i - 1] - drag.tops[i]
+      : to < drag.from && i >= to && i < drag.from ? drag.tops[i + 1] - drag.tops[i] : 0;
+    r.style.transform = y ? `translateY(${y}px)` : "";
+  });
+});
+document.addEventListener("pointerup", e => {
+  if (!drag || e.pointerId !== drag.pointer || drag.cancelled) return;
+  if (!drag.started) { drag = null; return; }
+  settleDrag();
+});
+document.addEventListener("pointercancel", () => cancelDrag());
+
+function settleDrag() {
+  const d = drag;
+  d.row.classList.remove("dragging");
+  d.row.classList.add("settle");
+  d.row.style.transform = `translateY(${d.tops[d.to] - d.tops[d.from]}px) scale(1.02)`;
+  setTimeout(async () => {
+    if (drag !== d || d.cancelled) return;
+    if (d.to !== d.from) await api("move-layer", {id: d.id, step: d.to - d.from});
+    if (drag !== d || d.cancelled) return;
+    cleanupDrag();
+    render(S);
+  }, 160);
+}
+
+function cancelDrag() {
+  const d = drag;
+  if (!d || d.cancelled) return;
+  d.cancelled = true;
+  if (!d.started) { drag = null; return; }
+  d.row.classList.remove("dragging");
+  d.row.classList.add("settle");
+  d.row.style.transform = "";
+  d.rows.forEach(r => { if (r !== d.row) r.style.transform = ""; });
+  setTimeout(() => { if (drag === d) cleanupDrag(); }, 160);
+}
+
+function cleanupDrag() {
+  document.body.classList.remove("grabbing");
+  $("layers").classList.remove("dragactive");
+  (drag?.rows || []).forEach(r => { r.classList.remove("dragging", "settle"); r.style.transform = ""; });
+  drag = null;
+}
 
 // the list is redrawn on every refresh; a list the user opened stays open
 const openModelLists = new Set();
@@ -818,11 +940,28 @@ function renderTiles(t) {
   $("tilesPanel").innerHTML = body + (j.error ? `<div class="mut" style="margin-top:8px"><span class="tag bad">ошибка</span> ${esc(j.error)}</div>` : "");
 }
 
+// ---------- daily limits: settings rows, each saving itself ----------
+const LIMITS = {
+  cloud: {input: "limCloud", no: "limCloudNo", saved: () => S.cloud.limit},
+  human: {input: "limHuman", no: "limHumanNo", saved: () => S.human.limit},
+  low: {input: "limLow", saved: () => S.human.lowBalance},
+  rate: {input: "limRate", saved: () => S.human.rubPerUsd},
+};
+// the row whose "Без лимита" was switched off but has no number yet waits for one, safe from the refresh
+const limitPending = new Set();
+
+// the text a field shows for the saved state: nothing at all when there is no limit
+const limitText = id => { const f = LIMITS[id], v = f.saved(); return f.no && !v ? "" : String(v ?? ""); };
+
 function renderLimits(s) {
   const h = s.human, cur = h.currency, mixed = h.spares.some(a => a.currency !== cur);
   $("limCur1").textContent = $("limCur2").textContent = cur;
-  $("limRateField").hidden = !mixed;
-  setIfIdle("limCloud", s.cloud.limit); setIfIdle("limHuman", h.limit); setIfIdle("limLow", h.lowBalance); setIfIdle("limRate", h.rubPerUsd);
+  $("limRateRow").hidden = !mixed;
+  for (const [id, f] of Object.entries(LIMITS)) {
+    if (limitPending.has(id)) continue;
+    if (f.no) limitRow(f);
+    else setIfIdle(f.input, f.saved());
+  }
   const of = (spent, limit, c) => limit ? `${money(spent, c)} из ${money(limit, c)}` : `${money(spent, c)}`;
   const unpriced = s.cloud.unpriced.length ? ` У ${s.cloud.unpriced.length} моделей цена неизвестна — их траты в лимит не попадают.` : "";
   const rate = mixed ? ` Запасные в другой валюте пересчитываются по курсу ${h.rubPerUsd} ₽/$.` : "";
@@ -830,6 +969,38 @@ function renderLimits(s) {
   $("limitsState").innerHTML = `Сегодня: модели ${of(s.cloud.spentToday, s.cloud.limit, "$")}, люди ${of(h.spentToday, h.limit, cur)}.` +
     (unpriced ? `<span>${esc(unpriced)}</span>` : "") + (rate ? `<span>${esc(rate)}</span>` : "");
 }
+
+// "Без лимита" on: the field is off and empty, and 0 is what gets saved
+function limitRow(f) {
+  const off = !f.saved();
+  $(f.no).checked = off;
+  $(f.input).disabled = off;
+  $(f.input).placeholder = off ? "Без лимита" : "";
+  setIfIdle(f.input, off ? "" : f.saved());
+}
+
+// saves one row through the "limits" action; a bad number is toasted by the action,
+// and the field is then put back to the saved value — focus or not
+async function saveLimit(id, value) {
+  await api("limits", {[id]: value});
+  syncLimit(id);
+}
+
+function syncLimit(id) {
+  limitPending.delete(id);
+  const f = LIMITS[id];
+  if (f.no) limitRow(f);
+  $(f.input).value = limitText(id);
+}
+
+// a row saves itself when its field is done: on blur, or on Enter (which blurs it)
+document.addEventListener("focusout", e => {
+  const id = e.target.dataset?.limit;
+  if (!id || !LIMITS[id]) return;
+  const value = e.target.value.trim();
+  if (!value) return syncLimit(id);  // nothing typed: back to the saved value (or to "Без лимита")
+  if (value !== limitText(id)) saveLimit(id, value);
+});
 
 // where macOS decides whether the app may run in the background and notify
 const PANES = {background: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
@@ -917,17 +1088,26 @@ function renderStats(st) {
 }
 
 function renderPop(s, st, on, hotId) {
+  // the switch appears only once the state is known, so it never flashes "off" first
+  $("popRun").closest("label").hidden = false;
   $("popRun").checked = !s.paused;
   $("popRunLabel").textContent = s.paused ? "На паузе" : "Работает";
   $("popOrb").classList.toggle("paused", s.paused);
   $("popSolved").textContent = st.solved;
   $("popSub").textContent = s.paused ? "капчи сейчас не принимаются" : st.solved ? `${st.free} бесплатно · ${st.spentText}` : "ждёт капчи";
+  // the panel is compact: only the steps that work; the rest collapse into one grey line
   let n = 0;
-  $("popSteps").innerHTML = s.layers.map(l => {
-    const right = !l.enabled ? "выключена" : !l.ready ? l.why : l.id === hotId ? "решила последнюю" : `${solvedBy(l.id)} сегодня`;
-    return `<div class="st ${l.enabled ? "" : "off"} ${l.id === hotId ? "hot" : ""}"><div class="ic">${l.enabled ? ++n : "–"}</div>
+  const off = s.layers.length - on.length;
+  $("popSteps").innerHTML = on.map(l => {
+    const right = !l.ready ? l.why : l.id === hotId ? "решила последнюю" : `${solvedBy(l.id)} сегодня`;
+    return `<div class="st ${l.id === hotId ? "hot" : ""}"><div class="ic">${++n}</div>
       <div><span class="n">${esc(shortTitle(l))}</span><small>${esc(popNote(l))}</small></div><span class="r">${esc(right)}</span></div>`;
-  }).join("");
+  }).join("") + (off ? `<div class="offmore" data-open="path">ещё ${off} выключено</div>` : "");
+  // what is about to run out or what macOS blocks, as one line; the update has a line of its own
+  const warn = [...(s.alerts || []).filter(a => !a.id.startsWith("update:") && !a.id.startsWith("bench:")).map(a => a.text),
+                ...(s.permissions || []).map(w => w.text)];
+  $("popWarn").hidden = !warn.length;
+  $("popWarn").innerHTML = warn.length ? `<span class="txt">${esc(warn[0])}</span>${warn.length > 1 ? `<span class="mut num">ещё ${warn.length - 1}</span>` : ""}` : "";
   $("popUpdate").hidden = !s.update;
   if (s.update) $("popUpdate").textContent = updateLine(s.update) + (s.update.job?.running ? "" : " — обновить");
   // the native panel takes the page's height, so nothing is cut off whatever the number of steps
@@ -970,6 +1150,7 @@ document.addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
   if (link) { e.preventDefault(); if (link.href.startsWith("http")) api("open-url", {url: link.href}); return; }
   const nav = e.target.closest(".nav"); if (nav) return show(nav.dataset.view);
+  const step = e.target.closest("#pathStrip .step, #pathStrip .empty"); if (step) return show("path");
   if (e.target.id === "updateBtn" || (e.target.id === "popUpdate" && !S.update?.job?.running)) return api("update", {}, e.target.id === "updateBtn" ? e.target : null);
   const row = e.target.closest("[data-entry]"); if (row) return openEntry(row.dataset.entry);
   const open = e.target.closest("[data-open]"); if (open) return api("open-window", {view: open.dataset.open});
@@ -1026,6 +1207,13 @@ document.addEventListener("change", e => {
   if (t.dataset.noteKey) return api("key-note", {name: t.dataset.noteKey, note: t.value});
   if (t.id === "companionRestart") return api("companion-restart", {on: t.checked});
   if (t.id === "journalFilter") return renderJournal(S.recent);
+  if (t.dataset.limitNo) {
+    const id = t.dataset.limitNo, f = LIMITS[id], input = $(f.input);
+    input.disabled = t.checked;
+    if (t.checked) { input.value = ""; limitPending.add(id); saveLimit(id, "0"); }
+    else { limitPending.add(id); input.focus(); }  // waiting for a number; the refresh leaves the row alone
+    return;
+  }
   if (t.id === "popRun") return api("pause", {paused: !t.checked});
 });
 document.addEventListener("input", e => {
@@ -1044,8 +1232,6 @@ document.addEventListener("submit", async e => {
     if (await api("spare-add", {provider: $("spareProvider").value, key: $("spareKey").value.trim(), note: $("spareNote").value.trim()}, btn)) {
       $("spareKey").value = ""; $("spareNote").value = "";
     }
-  } else if (f.id === "limitsForm") {
-    if (await api("limits", {cloud: $("limCloud").value, human: $("limHuman").value, low: $("limLow").value, rate: $("limRate").value}, btn)) btn.blur();
   } else if (f.dataset.manual) {
     const input = f.querySelector("input");
     if (await api("manual-model", {key: f.dataset.manual, model: input.value.trim()}, btn)) input.value = "";
