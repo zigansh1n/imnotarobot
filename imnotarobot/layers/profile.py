@@ -39,6 +39,19 @@ TOKEN_JS = """() => [...document.querySelectorAll('input')].map(e => e.value)
     .find(v => /\\|r=[a-z0-9-]+/i.test(v || '')) || ''"""
 
 
+# CDP drives the user's own browser on this Mac, so only a loopback address is allowed
+LOOPBACKS = ("127.0.0.1", "::1", "localhost")
+
+
+def check_endpoint(endpoint: str) -> None:
+    """Refuses a DevTools address that is not loopback http/ws: it would drive someone else's browser."""
+    parts = urlsplit(endpoint)
+    if parts.scheme not in ("http", "https", "ws", "wss"):
+        raise Unsolvable(tr("cdpEndpoint должен начинаться с http:// или ws://"))
+    if parts.hostname not in LOOPBACKS:
+        raise Unsolvable(tr("cdpEndpoint должен указывать на этот Мак: 127.0.0.1, ::1 или localhost"))
+
+
 def same_site(a: str, b: str) -> bool:
     ha, hb = urlsplit(a).hostname or "", urlsplit(b).hostname or ""
     tail = lambda h: ".".join(h.split(".")[-2:])
@@ -63,6 +76,7 @@ async def solve_in_profile(task: dict[str, Any], models: Solver | None, drag: Dr
     endpoint = str(task.get("cdpEndpoint") or "").strip()
     if not endpoint:
         raise Unsolvable(tr("нужен cdpEndpoint браузера, где открыта капча"))
+    check_endpoint(endpoint)
     try:
         from patchright.async_api import async_playwright
     except ImportError as e:
@@ -196,6 +210,9 @@ class DataDome:
         value = await self.cookie()
         if not value:
             raise Unsolvable(tr("капча DataDome ушла, но cookie datadome нет"))
+        if value == before:
+            # the page moved on without the slider passing: the old cookie would not pass the site's check
+            raise Unsolvable(tr("капча DataDome ушла, а cookie datadome не поменялся"))
         agent = await self.page.evaluate("() => navigator.userAgent")
         return {"cookie": f"datadome={value}", "userAgent": agent, "url": self.page.url}
 
@@ -260,8 +277,11 @@ class Arkose:
         while True:
             token = await self.token()
             game = await self.game()
-            if token or (game is None and rounds and not self.frames()):
+            if token:
                 return {"token": token, "passed": True}
+            if game is None and rounds and not self.frames():
+                # the frames vanished without a token: the site navigated or the challenge was aborted
+                raise Unsolvable(tr("капча Arkose ушла, а токен не появился"))
             if game is None:
                 if time.monotonic() - started > 20:
                     raise Unsolvable(tr("игра Arkose не появилась"))

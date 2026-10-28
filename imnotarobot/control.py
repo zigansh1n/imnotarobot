@@ -56,6 +56,8 @@ def rejects_images(error: str) -> bool:
 
 class Controller:
     def __init__(self, cfg: Config | None = None):
+        # one writer at a time: the window, the HTTP API and the background jobs all save settings through this
+        self._lock = threading.RLock()
         self.cfg = cfg or Config.load()
         self._explicit_layers()
         if self.cfg.require_client_key and not self.cfg.client_key:
@@ -165,12 +167,13 @@ class Controller:
         self.cfg.layers.insert(at, f"vlm:{name}")
 
     def _apply(self) -> None:
-        self.cfg.save()
-        fresh = Config.load()
-        fresh.state_path = self.cfg.state_path
-        self.cfg = fresh
-        self._explicit_layers()
-        self.service.reconfigure(fresh)
+        with self._lock:
+            self.cfg.save()
+            fresh = Config.load()
+            fresh.state_path = self.cfg.state_path
+            self.cfg = fresh
+            self._explicit_layers()
+            self.service.reconfigure(fresh)
 
     # --- what the menu shows --------------------------------------------------
     def today_line(self) -> str:
@@ -206,75 +209,81 @@ class Controller:
 
     # --- actions ----------------------------------------------------------------
     def toggle_layer(self, layer_id: str) -> None:
-        if layer_id in self.cfg.layers:
-            self.cfg.layers.remove(layer_id)
-        else:
-            # keeps the user's order: the layer goes before the first enabled layer that follows it by default
-            order = [i for i, _, _ in self.layer_items()]
-            after = order[order.index(layer_id) + 1:] if layer_id in order else []
-            at = next((self.cfg.layers.index(i) for i in after if i in self.cfg.layers), len(self.cfg.layers))
-            self.cfg.layers.insert(at, layer_id)
-        self._apply()
+        with self._lock:
+            if layer_id in self.cfg.layers:
+                self.cfg.layers.remove(layer_id)
+            else:
+                # keeps the user's order: the layer goes before the first enabled layer that follows it by default
+                order = [i for i, _, _ in self.layer_items()]
+                after = order[order.index(layer_id) + 1:] if layer_id in order else []
+                at = next((self.cfg.layers.index(i) for i in after if i in self.cfg.layers), len(self.cfg.layers))
+                self.cfg.layers.insert(at, layer_id)
+            self._apply()
 
     def add_model(self, name: str, provider: str, model: str, key: str, base_url: str = "") -> ModelSpec:
-        name = name.strip() or provider
-        if provider not in PRESETS:
-            raise ValueError(tr("неизвестный поставщик {provider}; есть: {known}", provider=repr(provider), known=", ".join(PRESETS)))
-        if any(m.name == name for m in self.cfg.models):
-            raise ValueError(tr("модель с именем {name} уже есть", name=repr(name)))
-        spec = ModelSpec(name=name, provider=provider, model=model.strip(), base_url=base_url.strip())
-        if not spec.model:
-            raise ValueError(tr("укажите название модели"))
-        if key.strip():
-            config_mod.set_secret(f"model:{name}", key.strip())
-        self.cfg.models.append(spec)
-        self._add_model_layer(name)
-        self._apply()
-        return spec
+        with self._lock:
+            name = name.strip() or provider
+            if provider not in PRESETS:
+                raise ValueError(tr("неизвестный поставщик {provider}; есть: {known}", provider=repr(provider), known=", ".join(PRESETS)))
+            if any(m.name == name for m in self.cfg.models):
+                raise ValueError(tr("модель с именем {name} уже есть", name=repr(name)))
+            spec = ModelSpec(name=name, provider=provider, model=model.strip(), base_url=base_url.strip())
+            if not spec.model:
+                raise ValueError(tr("укажите название модели"))
+            if key.strip():
+                config_mod.set_secret(f"model:{name}", key.strip())
+            self.cfg.models.append(spec)
+            self._add_model_layer(name)
+            self._apply()
+            return spec
 
     def remove_model(self, name: str) -> None:
-        self.cfg.models = [m for m in self.cfg.models if m.name != name]
-        self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{name}"]
-        config_mod.set_secret(f"model:{name}", "")
-        self._apply()
+        with self._lock:
+            self.cfg.models = [m for m in self.cfg.models if m.name != name]
+            self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{name}"]
+            config_mod.set_secret(f"model:{name}", "")
+            self._apply()
 
     def set_model_key(self, name: str, key: str) -> None:
-        config_mod.set_secret(f"model:{name}", key.strip())
-        self._apply()
+        with self._lock:
+            config_mod.set_secret(f"model:{name}", key.strip())
+            self._apply()
 
     def set_human(self, provider: str | None = None, key: str | None = None, daily_limit: float | None = None,
                   note: str | None = None) -> None:
-        if provider is not None:
-            if provider not in HUMAN_PRESETS:
-                raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
-            self.cfg.human_provider = provider
-            self.cfg.human_base_url = HUMAN_PRESETS[provider]
-        if key is not None:
-            key = key.strip()
-            config_mod.set_secret("human", key)
-            self.cfg.human_key_hint = f"{key[:4]}…{key[-4:]}" if key else ""
-            self.legacy_human_key = False
-            self.human_status = {}
-        if daily_limit is not None:
-            if daily_limit < 0:
-                raise ValueError(tr("лимит не может быть отрицательным"))
-            self.cfg.human_daily_limit = daily_limit
-        if note is not None:
-            self.cfg.human_note = note.strip()[:80]
-        self._apply()
+        with self._lock:
+            if provider is not None:
+                if provider not in HUMAN_PRESETS:
+                    raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
+                self.cfg.human_provider = provider
+                self.cfg.human_base_url = HUMAN_PRESETS[provider]
+            if key is not None:
+                key = key.strip()
+                config_mod.set_secret("human", key)
+                self.cfg.human_key_hint = f"{key[:4]}…{key[-4:]}" if key else ""
+                self.legacy_human_key = False
+                self.human_status = {}
+            if daily_limit is not None:
+                if daily_limit < 0:
+                    raise ValueError(tr("лимит не может быть отрицательным"))
+                self.cfg.human_daily_limit = daily_limit
+            if note is not None:
+                self.cfg.human_note = note.strip()[:80]
+            self._apply()
 
     def add_human_account(self, provider: str, key: str, note: str = "") -> HumanAccount:
         """A spare workers' account, used when the main one cannot take a captcha."""
-        if provider not in HUMAN_PRESETS:
-            raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
-        key = key.strip()
-        if not key:
-            raise ValueError(tr("вставьте ключ"))
-        account = HumanAccount(id=secrets.token_hex(4), provider=provider, note=note.strip()[:80], hint=f"{key[:4]}…{key[-4:]}")
-        config_mod.set_secret(f"human:{account.id}", key)
-        self.cfg.human_extra.append(account)
-        self._apply()
-        return account
+        with self._lock:
+            if provider not in HUMAN_PRESETS:
+                raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
+            key = key.strip()
+            if not key:
+                raise ValueError(tr("вставьте ключ"))
+            account = HumanAccount(id=secrets.token_hex(4), provider=provider, note=note.strip()[:80], hint=f"{key[:4]}…{key[-4:]}")
+            config_mod.set_secret(f"human:{account.id}", key)
+            self.cfg.human_extra.append(account)
+            self._apply()
+            return account
 
     def human_account(self, account_id: str) -> HumanAccount:
         found = next((a for a in self.cfg.human_extra if a.id == account_id), None)
@@ -283,15 +292,17 @@ class Controller:
         return found
 
     def remove_human_account(self, account_id: str) -> None:
-        self.human_account(account_id)
-        self.cfg.human_extra = [a for a in self.cfg.human_extra if a.id != account_id]
-        config_mod.set_secret(f"human:{account_id}", "")
-        self.spare_status.pop(account_id, None)
-        self._apply()
+        with self._lock:
+            self.human_account(account_id)
+            self.cfg.human_extra = [a for a in self.cfg.human_extra if a.id != account_id]
+            config_mod.set_secret(f"human:{account_id}", "")
+            self.spare_status.pop(account_id, None)
+            self._apply()
 
     def set_human_account_note(self, account_id: str, note: str) -> None:
-        self.human_account(account_id).note = note.strip()[:80]
-        self._apply()
+        with self._lock:
+            self.human_account(account_id).note = note.strip()[:80]
+            self._apply()
 
     def check_human_account(self, account_id: str) -> dict:
         index = 1 + self.cfg.human_extra.index(self.human_account(account_id))
@@ -307,15 +318,17 @@ class Controller:
         return status
 
     def set_key_note(self, name: str, note: str) -> None:
-        entry = next((k for k in self.cfg.keys if k.name == name), None)
-        if entry is None:
-            raise ValueError(tr("такого ключа нет"))
-        entry.note = note.strip()[:80]
-        self._apply()
+        with self._lock:
+            entry = next((k for k in self.cfg.keys if k.name == name), None)
+            if entry is None:
+                raise ValueError(tr("такого ключа нет"))
+            entry.note = note.strip()[:80]
+            self._apply()
 
     def set_companion_restart(self, on: bool) -> None:
-        self.cfg.companion_restart = on
-        self._apply()
+        with self._lock:
+            self.cfg.companion_restart = on
+            self._apply()
 
     def set_paused(self, paused: bool) -> None:
         self.service.paused = paused
@@ -352,13 +365,14 @@ class Controller:
         return tr("Люди ({name}): ключ есть", name=name)
 
     def move_layer(self, layer_id: str, step: int) -> None:
-        layers = self.cfg.layers
-        if layer_id not in layers:
-            return
-        i = layers.index(layer_id)
-        j = max(0, min(len(layers) - 1, i + step))
-        layers.insert(j, layers.pop(i))
-        self._apply()
+        with self._lock:
+            layers = self.cfg.layers
+            if layer_id not in layers:
+                return
+            i = layers.index(layer_id)
+            j = max(0, min(len(layers) - 1, i + step))
+            layers.insert(j, layers.pop(i))
+            self._apply()
 
     # --- keys --------------------------------------------------------------------
     def add_key(self, secret: str, base_url: str = "") -> KeyEntry:
@@ -371,20 +385,21 @@ class Controller:
             found = detect_sync(secret, base_url.strip(), progress=lambda text: setattr(self, "detecting", text))
         finally:
             self.detecting = ""
-        taken = {k.name for k in self.cfg.keys}
         base_name = urlparse(found.base_url).hostname or "custom" if found.provider == "custom" else found.provider
-        name = base_name if base_name not in taken else next(
-            f"{base_name}-{i}" for i in range(2, 99) if f"{base_name}-{i}" not in taken)
-        entry = KeyEntry(name=name, provider=found.provider, base_url=found.base_url,
-                         hint=f"{secret[:5]}…{secret[-4:]}", listable=found.listable,
-                         models=[[m.id, m.vision, m.price_in, m.price_out] for m in found.models])
-        config_mod.set_secret(f"key:{name}", secret)
-        self.cfg.keys.append(entry)
-        self._apply()
-        # a fresh Gemini key works at once: its best captcha models are switched on
-        for model_id in recommended_models([mid for mid, vision, *_ in entry.models if vision]):
-            self.toggle_key_model(name, model_id)
-        return entry
+        with self._lock:  # the provider was found outside the lock: the slow part must not block other changes
+            taken = {k.name for k in self.cfg.keys}
+            name = base_name if base_name not in taken else next(
+                f"{base_name}-{i}" for i in range(2, 99) if f"{base_name}-{i}" not in taken)
+            entry = KeyEntry(name=name, provider=found.provider, base_url=found.base_url,
+                             hint=f"{secret[:5]}…{secret[-4:]}", listable=found.listable,
+                             models=[[m.id, m.vision, m.price_in, m.price_out] for m in found.models])
+            config_mod.set_secret(f"key:{name}", secret)
+            self.cfg.keys.append(entry)
+            self._apply()
+            # a fresh Gemini key works at once: its best captcha models are switched on
+            for model_id in recommended_models([mid for mid, vision, *_ in entry.models if vision]):
+                self.toggle_key_model(name, model_id)
+            return entry
 
     def key(self, name: str) -> KeyEntry:
         entry = next((k for k in self.cfg.keys if k.name == name), None)
@@ -395,17 +410,20 @@ class Controller:
     def refresh_key(self, name: str) -> KeyEntry:
         entry = self.key(name)
         found = detect_sync(config_mod.get_secret(f"key:{name}"), entry.base_url if entry.provider == "custom" else "")
-        entry.models = [[m.id, m.vision, m.price_in, m.price_out] for m in found.models]
-        self._apply()
-        return entry
+        with self._lock:
+            entry = self.key(name)  # re-read: another thread may have reloaded the config while we were detecting
+            entry.models = [[m.id, m.vision, m.price_in, m.price_out] for m in found.models]
+            self._apply()
+            return entry
 
     def remove_key(self, name: str) -> None:
-        self.cfg.layers = [x for x in self.cfg.layers
-                           if not any(x == f"vlm:{m.name}" for m in self.cfg.models if m.key == name)]
-        self.cfg.models = [m for m in self.cfg.models if m.key != name]
-        self.cfg.keys = [k for k in self.cfg.keys if k.name != name]
-        config_mod.set_secret(f"key:{name}", "")
-        self._apply()
+        with self._lock:
+            self.cfg.layers = [x for x in self.cfg.layers
+                               if not any(x == f"vlm:{m.name}" for m in self.cfg.models if m.key == name)]
+            self.cfg.models = [m for m in self.cfg.models if m.key != name]
+            self.cfg.keys = [k for k in self.cfg.keys if k.name != name]
+            config_mod.set_secret(f"key:{name}", "")
+            self._apply()
 
     def key_models(self, name: str, vision_only: bool = True) -> list[tuple[str, bool]]:
         """(model id, enabled) for the menu."""
@@ -413,18 +431,19 @@ class Controller:
         return [(mid, mid in enabled) for mid, vision, *_ in self.key(name).models if vision or not vision_only]
 
     def toggle_key_model(self, key_name: str, model_id: str) -> None:
-        entry = self.key(key_name)
-        existing = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
-        if existing:
-            self.cfg.models.remove(existing)
-            self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{existing.name}"]
-        else:
-            price = next(((p_in, p_out) for mid, _, p_in, p_out in entry.models if mid == model_id), (0.0, 0.0))
-            spec = ModelSpec(name=f"{key_name}/{model_id}", provider=entry.provider, base_url=entry.base_url,
-                             model=model_id, key=key_name, price_in=price[0], price_out=price[1])
-            self.cfg.models.append(spec)
-            self._add_model_layer(spec.name)
-        self._apply()
+        with self._lock:
+            entry = self.key(key_name)
+            existing = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
+            if existing:
+                self.cfg.models.remove(existing)
+                self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{existing.name}"]
+            else:
+                price = next(((p_in, p_out) for mid, _, p_in, p_out in entry.models if mid == model_id), (0.0, 0.0))
+                spec = ModelSpec(name=f"{key_name}/{model_id}", provider=entry.provider, base_url=entry.base_url,
+                                 model=model_id, key=key_name, price_in=price[0], price_out=price[1])
+                self.cfg.models.append(spec)
+                self._add_model_layer(spec.name)
+            self._apply()
 
     # --- comparing models ----------------------------------------------------------
     def bench_cases(self, per_kind: int = 5) -> list[dict]:
@@ -473,13 +492,14 @@ class Controller:
     def set_effort(self, key_name: str, model_id: str, kind: str, level: str) -> None:
         from .providers import EFFORTS
 
-        if level not in EFFORTS or kind not in ("recognition", "clicks"):
-            raise ValueError(tr("неизвестный уровень раздумий"))
-        spec = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
-        if spec is None:
-            raise ValueError(tr("сначала включите модель"))
-        setattr(spec, f"effort_{kind}", level)
-        self._apply()
+        with self._lock:
+            if level not in EFFORTS or kind not in ("recognition", "clicks"):
+                raise ValueError(tr("неизвестный уровень раздумий"))
+            spec = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
+            if spec is None:
+                raise ValueError(tr("сначала включите модель"))
+            setattr(spec, f"effort_{kind}", level)
+            self._apply()
 
     def start_bench(self, key_name: str | None, specs: list[ModelSpec] | None = None, label: str = "") -> dict:
         """Runs the comparison in a background thread; progress and results land in self.bench."""
@@ -542,14 +562,16 @@ class Controller:
             try:
                 result = self.test_model(key_name, model_id)
                 if not result["ok"] and any(rejects_images(d["error"]) for d in result["details"]):
-                    for row in self.key(key_name).models:
-                        if row[0] == model_id:
-                            row[1] = False
-                    existing = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
-                    if existing:  # switched off by hand while the test ran: only the vision flag is left to save
-                        self.cfg.models.remove(existing)
-                        self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{existing.name}"]
-                    self._apply()
+                    with self._lock:
+                        # re-read the current config: the window may have reloaded it while the test was running
+                        for row in self.key(key_name).models:
+                            if row[0] == model_id:
+                                row[1] = False
+                        existing = next((m for m in self.cfg.models if m.key == key_name and m.model == model_id), None)
+                        if existing:  # switched off by hand while the test ran: only the vision flag is left to save
+                            self.cfg.models.remove(existing)
+                            self.cfg.layers = [x for x in self.cfg.layers if x != f"vlm:{existing.name}"]
+                        self._apply()
                     self.toast(f"no-vision:{name}", tr("{model} не принимает картинки — выключена", model=model_id))
             except Exception:
                 pass  # nothing to switch off; the empty test result says the check got no answer
@@ -559,11 +581,12 @@ class Controller:
         threading.Thread(target=work, daemon=True, name="captcha-stack-health").start()
 
     def set_access(self, required: bool | None = None, regenerate: bool = False) -> None:
-        if required is not None:
-            self.cfg.require_client_key = required
-        if regenerate or (self.cfg.require_client_key and not self.cfg.client_key):
-            self.cfg.client_key = "cs-" + secrets.token_urlsafe(18)
-        self._apply()
+        with self._lock:
+            if required is not None:
+                self.cfg.require_client_key = required
+            if regenerate or (self.cfg.require_client_key and not self.cfg.client_key):
+                self.cfg.client_key = "cs-" + secrets.token_urlsafe(18)
+            self._apply()
 
     def check_connection(self) -> dict:
         """Sends a generated text captcha through the app's own 2Captcha-style API, the way a program would."""
@@ -745,18 +768,20 @@ class Controller:
 
     def promote(self, model_names: list[str]) -> None:
         """Puts the given models first among the vision layers, in this order."""
-        vlm = [f"vlm:{n}" for n in model_names if any(m.name == n for m in self.cfg.models)]
-        others = [x for x in self.cfg.layers if x not in vlm]
-        insert_at = next((i for i, x in enumerate(others) if x.startswith("vlm") or x == "human"), len(others))
-        self.cfg.layers = others[:insert_at] + vlm + others[insert_at:]
-        self._apply()
+        with self._lock:
+            vlm = [f"vlm:{n}" for n in model_names if any(m.name == n for m in self.cfg.models)]
+            others = [x for x in self.cfg.layers if x not in vlm]
+            insert_at = next((i for i, x in enumerate(others) if x.startswith("vlm") or x == "human"), len(others))
+            self.cfg.layers = others[:insert_at] + vlm + others[insert_at:]
+            self._apply()
 
     def use_best(self, model_name: str) -> None:
         """Enables a compared model if needed and puts it first among the vision layers."""
-        if not any(m.name == model_name for m in self.cfg.models):
-            key_name, model_id = model_name.split("/", 1)
-            self.toggle_key_model(key_name, model_id)
-        self.promote([model_name])
+        with self._lock:
+            if not any(m.name == model_name for m in self.cfg.models):
+                key_name, model_id = model_name.split("/", 1)
+                self.toggle_key_model(key_name, model_id)
+            self.promote([model_name])
 
     # --- start at login ---------------------------------------------------------
     def refresh_permissions(self) -> dict[str, bool | None]:

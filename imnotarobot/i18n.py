@@ -98,6 +98,8 @@ EN: dict[str, str] = {
     "модель не указала, что и куда тащить": "the model did not say what to drag and where",
     # the client's own browser over CDP
     "нужен cdpEndpoint браузера, где открыта капча": "needs cdpEndpoint of the browser that shows the captcha",
+    "cdpEndpoint должен начинаться с http:// или ws://": "cdpEndpoint must start with http:// or ws://",
+    "cdpEndpoint должен указывать на этот Мак: 127.0.0.1, ::1 или localhost": "cdpEndpoint must point at this Mac: 127.0.0.1, ::1 or localhost",
     "не подключиться к браузеру по {endpoint}: {error}": "cannot connect to the browser at {endpoint}: {error}",
     "в браузере нет открытых вкладок": "the browser has no open tabs",
     "ни на одной открытой вкладке нет этой капчи": "no open tab shows this captcha",
@@ -105,9 +107,11 @@ EN: dict[str, str] = {
     "DataDome заблокировал этот IP{ip} без капчи: смените прокси": "DataDome blocked this IP{ip} with no captcha: change the proxy",
     "слайдер DataDome не появился": "the DataDome slider did not appear",
     "капча DataDome ушла, но cookie datadome нет": "the DataDome captcha is gone but there is no datadome cookie",
+    "капча DataDome ушла, а cookie datadome не поменялся": "the DataDome captcha went away but the datadome cookie did not change",
     "на картинке DataDome нет кусочка пазла": "the DataDome picture has no puzzle piece",
     "игра Arkose не появилась": "the Arkose game did not appear",
     "варианты Arkose не пошли по кругу": "the Arkose options did not come round",
+    "капча Arkose ушла, а токен не появился": "the Arkose captcha went away but no token appeared",
     "модель не выбрала картинку": "the model picked no picture",
     "для слайдера нужен piece — картинка кусочка": "a slider needs piece, the picture of the piece",
     # humans
