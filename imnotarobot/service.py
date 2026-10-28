@@ -41,10 +41,12 @@ def build_layers(cfg: Config) -> list[Layer]:
 
 def spare_accounts(cfg: Config) -> list[Account]:
     main = HUMAN_CURRENCY.get(cfg.human_provider, "$")
+    # a rate edited to 0 by hand must not break every captcha
+    usd = cfg.rub_per_usd if cfg.rub_per_usd > 0 else 80.0
     out = []
     for a in cfg.human_extra:
         cur = HUMAN_CURRENCY.get(a.provider, "$")
-        rate = 1.0 if cur == main else cfg.rub_per_usd if main == "₽" else 1 / cfg.rub_per_usd
+        rate = 1.0 if cur == main else usd if main == "₽" else 1 / usd
         out.append(Account(HUMAN_PRESETS.get(a.provider, ""), config_mod.get_secret(f"human:{a.id}"), a.note or a.provider, rate))
     return out
 
