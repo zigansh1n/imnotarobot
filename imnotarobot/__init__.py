@@ -1,4 +1,4 @@
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 from .server import create_app  # noqa: E402  (the server reads __version__)
 
