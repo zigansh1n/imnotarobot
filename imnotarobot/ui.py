@@ -102,8 +102,8 @@ def state(c: "Controller") -> dict[str, Any]:
                              "unsupported": m.name in NO_EFFORT} for m in cfg.models},
         "human": {"provider": cfg.human_provider, "currency": HUMAN_CURRENCY.get(cfg.human_provider, "$"),
                   "hasKey": bool(cfg.human_api_key), "hint": cfg.human_key_hint, "legacyKey": c.legacy_human_key,
-                  "limit": cfg.human_daily_limit, "lowBalance": cfg.human_low_balance, "status": c.human_status,
-                  "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider),
+                  "limit": cfg.human_daily_limit, "lowBalance": cfg.human_low_balance, "rubPerUsd": cfg.rub_per_usd,
+                  "status": c.human_status, "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider),
                   "note": cfg.human_note,
                   "spares": [{"id": a.id, "provider": a.provider, "title": HUMAN_TITLES.get(a.provider, a.provider), "note": a.note,
                               "hint": a.hint, "currency": HUMAN_CURRENCY.get(a.provider, "$"), "status": c.spare_status.get(a.id, {}),
@@ -320,13 +320,17 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
                     raise ValueError(tr("число не может быть отрицательным"))
                 return v
 
-            human, low, cloud = number("human"), number("low"), number("cloud")
+            human, low, cloud, rate = number("human"), number("low"), number("cloud"), number("rate")
+            if rate is not None and rate <= 0:
+                raise ValueError(tr("курс должен быть больше нуля"))
             if human is not None:
                 c.cfg.human_daily_limit = human
             if low is not None:
                 c.cfg.human_low_balance = low
             if cloud is not None:
                 c.cfg.cloud_daily_limit_usd = cloud
+            if rate is not None:
+                c.cfg.rub_per_usd = rate
             c._apply()
             h = c.cfg.human_daily_limit
             def per_day(v, cur):
@@ -334,6 +338,9 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
 
             parts = [tr("люди — {value}", value=per_day(h, HUMAN_CURRENCY.get(c.cfg.human_provider, "$"))),
                      tr("модели — {value}", value=per_day(c.cfg.cloud_daily_limit_usd, "$"))]
+            # the rate only matters when a spare account bills in another currency
+            if any(HUMAN_CURRENCY.get(a.provider, "$") != cur for a in c.cfg.human_extra):
+                parts.append(tr("курс — {value}", value=f"{c.cfg.rub_per_usd:g} ₽/$"))
             return done(tr("Лимиты сохранены: {parts}.", parts=", ".join(parts)))
         if action == "check-human":
             st = await run_in_threadpool(c.check_human)

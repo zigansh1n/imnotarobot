@@ -293,6 +293,47 @@ def test_a_spare_key_is_checked_labelled_and_never_shown(ui, monkeypatch):
     assert client.post("/api/ui/spare-remove", json={"id": "nope"}).status_code == 400
 
 
+def test_the_humans_step_stays_usable_with_only_spare_keys(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.layers.human import HumanLayer
+
+    async def balance(self, index=0):
+        return 5.0
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    client.post("/api/ui/spare-add", json={"provider": "anticaptcha", "key": "ac-key-12345678"})
+    s = client.get("/api/ui/state").json()
+    layer = next(x for x in s["layers"] if x["id"] == "human")
+    assert layer["enabled"] and layer["active"] and layer["ready"] and layer["why"] == ""
+    assert s["human"]["hasKey"] is False and s["human"]["spares"][0]["currency"] == "$"
+
+
+def test_limits_save_the_dollar_rate_for_mixed_currencies(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.layers.human import HumanLayer
+
+    async def balance(self, index=0):
+        return 5.0
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    client.post("/api/ui/spare-add", json={"provider": "anticaptcha", "key": "ac-key-12345678"})
+    r = client.post("/api/ui/limits", json={"rate": "90"}).json()
+    assert r["ok"] and "курс — 90 ₽/$" in r["message"]
+    assert c.cfg.rub_per_usd == 90.0
+    # the spare's spending is counted at the new rate from now on
+    assert c.service.chain.layer("human").accounts[1].rate == 90.0
+    assert client.get("/api/ui/state").json()["human"]["rubPerUsd"] == 90.0
+    bad = client.post("/api/ui/limits", json={"rate": "0"})
+    assert bad.status_code == 400 and bad.json()["error"] == "курс должен быть больше нуля"
+    assert client.post("/api/ui/limits", json={"rate": "-1"}).status_code == 400
+
+
+def test_limits_leave_the_rate_out_without_spare_accounts(ui):
+    c, client = ui
+    r = client.post("/api/ui/limits", json={"rate": "70"}).json()
+    assert r["ok"] and "курс" not in r["message"] and c.cfg.rub_per_usd == 70.0
+
+
 def test_restart_switch_shows_only_with_companion_apps(ui):
     c, client = ui
     assert client.get("/api/ui/state").json()["companions"] == {"apps": [], "restart": False}

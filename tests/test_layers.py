@@ -7,6 +7,7 @@ import pytest
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from imnotarobot.layers import HumanLayer, LocalLayer, Unsolvable
+from imnotarobot.layers.human import ACCOUNT_ERRORS, CAPTCHA_ERRORS, Account
 from helpers import png_b64, text_image
 
 
@@ -117,3 +118,120 @@ def test_human_without_a_main_key_uses_the_spare():
 def test_human_takes_token_captchas_but_not_local_only_ones():
     layer = HumanLayer("https://x", "k")
     assert layer.supports("HCaptchaTaskProxyless") and not layer.supports("SlideMatchTask")
+
+
+def human_mock(main_answer, calls):
+    """A transport where the main account answers with main_answer (a response, a callable or an
+    error to raise) and the spare account always solves the captcha."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        host, method = request.url.host, request.url.path.strip("/")
+        calls.append((host, method))
+        if host == "main.test":
+            if isinstance(main_answer, Exception):
+                raise main_answer
+            return main_answer(request) if callable(main_answer) else main_answer
+        if method == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        return httpx.Response(200, json={"errorId": 0, "status": "ready", "solution": {"text": "ok"}, "cost": "0.002"})
+
+    return httpx.MockTransport(handler)
+
+
+def human_layer(main_answer, calls, **kw):
+    return HumanLayer("https://main.test", "main", poll_interval=0, transport=human_mock(main_answer, calls),
+                      spares=[Account("https://spare.test", "spare", "Anti-Captcha")], **kw)
+
+
+@pytest.mark.parametrize("code", sorted(ACCOUNT_ERRORS))
+def test_human_account_errors_move_to_the_next_account(code):
+    calls: list[tuple[str, str]] = []
+    layer = human_layer(httpx.Response(200, json={"errorId": 1, "errorCode": code}), calls)
+    assert run(layer.solve({"type": "ImageToTextTask", "body": "eA=="})).solution == {"text": "ok"}
+    assert [h for h, _ in calls] == ["main.test", "spare.test", "spare.test"]
+
+
+@pytest.mark.parametrize("answer", [
+    httpx.ConnectError("no route to host"),
+    httpx.Response(200, text="<html>proxy error</html>"),
+    httpx.Response(500, text="Internal Server Error"),
+    httpx.Response(500, json={"errorId": 0}),
+], ids=["network", "non-json", "http-500", "http-500-json"])
+def test_human_service_breakdowns_move_to_the_next_account(answer):
+    calls: list[tuple[str, str]] = []
+    layer = human_layer(answer, calls)
+    assert run(layer.solve({"type": "ImageToTextTask", "body": "eA=="})).solution == {"text": "ok"}
+    assert [h for h, _ in calls] == ["main.test", "spare.test", "spare.test"]
+
+
+def test_human_unknown_error_at_create_task_moves_to_the_next_account():
+    # a createTask that fails was never accepted, so the spare account risks no second payment
+    calls: list[tuple[str, str]] = []
+    answer = httpx.Response(200, json={"errorId": 1, "errorCode": "ERROR_SOMETHING_NEW", "errorDescription": "???"})
+    layer = human_layer(answer, calls)
+    assert run(layer.solve({"type": "ImageToTextTask", "body": "eA=="})).solution == {"text": "ok"}
+    assert [h for h, _ in calls] == ["main.test", "spare.test", "spare.test"]
+
+
+@pytest.mark.parametrize("code", sorted(CAPTCHA_ERRORS))
+def test_human_captcha_errors_stop_at_the_first_account(code):
+    # the captcha itself is the problem: a spare would only repeat the failure
+    calls: list[tuple[str, str]] = []
+    layer = human_layer(httpx.Response(200, json={"errorId": 1, "errorCode": code}), calls)
+    with pytest.raises(Unsolvable, match=code):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert [h for h, _ in calls] == ["main.test"]
+
+
+@pytest.mark.parametrize("code", ["ERROR_CAPTCHA_UNSOLVABLE", "ERROR_SOMETHING_NEW"])
+def test_human_errors_while_polling_stop_at_the_first_account(code):
+    # the task is already with the workers and may still be solved and paid for: no second attempt
+    calls: list[tuple[str, str]] = []
+
+    def main_answer(request: httpx.Request) -> httpx.Response:
+        if request.url.path.strip("/") == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        return httpx.Response(200, json={"errorId": 1, "errorCode": code})
+
+    layer = human_layer(main_answer, calls)
+    with pytest.raises(Unsolvable, match=code):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert [h for h, _ in calls] == ["main.test", "main.test"]
+
+
+def test_human_poll_timeout_after_acceptance_does_not_fall_back():
+    # the workers may still be solving it: another account would mean a second payment
+    calls: list[tuple[str, str]] = []
+    answer = httpx.Response(200, json={"errorId": 0, "taskId": 7, "status": "processing"})
+    layer = human_layer(answer, calls, timeout=0)
+    with pytest.raises(Unsolvable, match="нет ответа"):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert [h for h, _ in calls] == ["main.test"]
+
+
+def test_human_lists_every_account_when_all_of_them_fail():
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.url.host, request.url.path.strip("/")))
+        return httpx.Response(200, json={"errorId": 1, "errorCode": "ERROR_ZERO_BALANCE"})
+
+    layer = HumanLayer("https://main.test", "main", poll_interval=0, transport=httpx.MockTransport(handler),
+                       spares=[Account("https://spare.test", "spare", "Anti-Captcha")])
+    with pytest.raises(Unsolvable) as exc:
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert str(exc.value) == ("https://main.test: на балансе нет денег (ERROR_ZERO_BALANCE); "
+                              "Anti-Captcha: на балансе нет денег (ERROR_ZERO_BALANCE)")
+    assert [h for h, _ in calls] == ["main.test", "spare.test"]
+
+
+def test_human_single_account_keeps_its_messages():
+    # without spares nothing is retried and the messages stay as they were
+    layer = HumanLayer("https://main.test", "main", poll_interval=0,
+                       transport=human_mock(httpx.ConnectError("no route to host"), []))
+    with pytest.raises(Unsolvable, match="no route to host"):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    layer = HumanLayer("https://main.test", "main", timeout=0, poll_interval=0,
+                       transport=human_mock(httpx.Response(200, json={"errorId": 0, "taskId": 1, "status": "processing"}), []))
+    with pytest.raises(Unsolvable, match=r"нет ответа от https://main\.test за 0 с"):
+        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
