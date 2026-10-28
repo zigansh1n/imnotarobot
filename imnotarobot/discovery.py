@@ -72,7 +72,12 @@ def _parse_models(provider: str, j: dict[str, Any]) -> list[ModelInfo]:
             continue
         arch = m.get("architecture") or {}
         caps = m.get("capabilities") or {}
-        if "input_modalities" in arch:
+        # Fireworks marks embedding and completion-only models instead of naming them
+        if m.get("supports_chat") is False or m.get("kind") == "EMBEDDING_MODEL":
+            continue
+        if "supports_image_input" in m:
+            info = ModelInfo(mid, bool(m["supports_image_input"]), sure=True)
+        elif "input_modalities" in arch:
             info = ModelInfo(mid, "image" in arch["input_modalities"], sure=True)
         elif "vision" in caps:
             info = ModelInfo(mid, bool(caps["vision"]), sure=True)

@@ -8,8 +8,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .chain import Chain, State, today
-from .config import Config
+from . import config as config_mod
+from .config import HUMAN_CURRENCY, HUMAN_PRESETS, Config
 from .layers import HumanLayer, Layer, LocalLayer, Result, VlmLayer
+from .layers.human import Account
 from .layers.browser import BrowserLayer, ask_models
 from .i18n import tr
 
@@ -27,12 +29,23 @@ def build_layers(cfg: Config) -> list[Layer]:
             # filled below: the browser asks every enabled model, wherever it sits in the order
             out.append(BrowserLayer(None))
         elif name == "human":
-            out.append(HumanLayer(cfg.human_base_url, cfg.human_api_key, cfg.human_timeout, cfg.human_poll_interval))
+            out.append(HumanLayer(cfg.human_base_url, cfg.human_api_key, cfg.human_timeout, cfg.human_poll_interval,
+                                  spares=spare_accounts(cfg)))
     models = [x for x in out if isinstance(x, VlmLayer)]
     for x in out:
         if isinstance(x, BrowserLayer) and models:
             x.models = lambda t: ask_models(models, t)
             x.hands_spec = next((m.spec for m in models if m.available()), None)
+    return out
+
+
+def spare_accounts(cfg: Config) -> list[Account]:
+    main = HUMAN_CURRENCY.get(cfg.human_provider, "$")
+    out = []
+    for a in cfg.human_extra:
+        cur = HUMAN_CURRENCY.get(a.provider, "$")
+        rate = 1.0 if cur == main else cfg.rub_per_usd if main == "₽" else 1 / cfg.rub_per_usd
+        out.append(Account(HUMAN_PRESETS.get(a.provider, ""), config_mod.get_secret(f"human:{a.id}"), a.note or a.provider, rate))
     return out
 
 

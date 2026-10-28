@@ -32,7 +32,8 @@ TYPE_TITLES = {
     "SlideMatchTask": tr("Слайдер"), "RotateTask": tr("Поворот"), "RecaptchaV2TaskProxyless": "reCAPTCHA v2",
     "RecaptchaV2Task": "reCAPTCHA v2", "RecaptchaV3TaskProxyless": "reCAPTCHA v3", "HCaptchaTaskProxyless": "hCaptcha",
     "HCaptchaTask": "hCaptcha", "TurnstileTaskProxyless": "Cloudflare Turnstile", "TurnstileTask": "Cloudflare Turnstile",
-    "GeeTestTaskProxyless": "GeeTest", "FunCaptchaTaskProxyless": "FunCaptcha",
+    "GeeTestTaskProxyless": "GeeTest", "FunCaptchaTaskProxyless": "FunCaptcha", "FunCaptchaTask": "FunCaptcha",
+    "DataDomeSliderTask": "DataDome",
 }
 
 
@@ -79,7 +80,8 @@ def state(c: "Controller") -> dict[str, Any]:
             why = "" if ready else tr("нужен Google Chrome")
         elif layer_id == "human":
             title = tr("Люди ({name})", name=HUMAN_TITLES.get(cfg.human_provider, cfg.human_provider))
-            ready, why = bool(cfg.human_api_key), "" if cfg.human_api_key else tr("нет ключа")
+            ready = bool(cfg.human_api_key or cfg.human_extra)
+            why = "" if ready else tr("нет ключа")
         elif layer_id in known:
             m = known[layer_id]
             title, ready, why = f"{m.model} · {m.key or m.provider}", m.ready(), "" if m.ready() else tr("нет ключа")
@@ -94,14 +96,19 @@ def state(c: "Controller") -> dict[str, Any]:
         "today": {"solved": int(sum(v.get("solved", 0) for v in day.values())),
                   "usd": sum(v.get("usd", 0.0) for v in day.values()), "byLayer": day},
         "layers": layers,
-        "keys": [{"name": k.name, "provider": k.provider, "hint": k.hint, "baseUrl": k.base_url, "listable": k.listable,
+        "keys": [{"name": k.name, "provider": k.provider, "hint": k.hint, "baseUrl": k.base_url, "listable": k.listable, "note": k.note,
                   "models": [{"id": mid, "enabled": on} for mid, on in c.key_models(k.name)]} for k in cfg.keys],
         "efforts": {m.name: {"recognition": m.effort_recognition, "clicks": m.effort_clicks,
                              "unsupported": m.name in NO_EFFORT} for m in cfg.models},
         "human": {"provider": cfg.human_provider, "currency": HUMAN_CURRENCY.get(cfg.human_provider, "$"),
                   "hasKey": bool(cfg.human_api_key), "hint": cfg.human_key_hint, "legacyKey": c.legacy_human_key,
                   "limit": cfg.human_daily_limit, "lowBalance": cfg.human_low_balance, "status": c.human_status,
-                  "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider)},
+                  "spentToday": c.service.chain.state.spent_today("human"), "topup": HUMAN_TOPUP.get(cfg.human_provider),
+                  "note": cfg.human_note,
+                  "spares": [{"id": a.id, "provider": a.provider, "title": HUMAN_TITLES.get(a.provider, a.provider), "note": a.note,
+                              "hint": a.hint, "currency": HUMAN_CURRENCY.get(a.provider, "$"), "status": c.spare_status.get(a.id, {}),
+                              "topup": HUMAN_TOPUP.get(a.provider)} for a in cfg.human_extra]},
+        "companions": {"apps": cfg.companion_apps, "restart": cfg.companion_restart},
         "cloud": {"limit": cfg.cloud_daily_limit_usd, "spentToday": c.spend_today()["cloud_usd"],
                   "unpriced": [m.name for m in cfg.models if not (m.price_in or m.price_out)]},
         "recent": [{**r, "typeTitle": type_title(r.get("type", ""))} for r in list(c.service.recent)[:50]],
@@ -259,6 +266,37 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
                 return JSONResponse({"ok": False, "error": tr("ключ сохранён, но {service} его не принял: {error}", service=c.cfg.human_provider, error=st["error"]),
                                      "state": state(c)}, status_code=400)
             return done(tr("Ключ работает, баланс {money}.", money=money(st["balance"], HUMAN_CURRENCY.get(c.cfg.human_provider, "$"))))
+        if action == "human-note":
+            c.set_human(note=str(b.get("note") or ""))
+            return done(tr("Подпись сохранена."))
+        if action == "spare-add":
+            account = c.add_human_account(str(b.get("provider") or ""), str(b.get("key") or ""), str(b.get("note") or ""))
+            st = await run_in_threadpool(c.check_human_account, account.id)
+            title = HUMAN_TITLES.get(account.provider, account.provider)
+            if not st["ok"]:
+                return JSONResponse({"ok": False, "error": tr("ключ сохранён, но {service} его не принял: {error}", service=title, error=st["error"]),
+                                     "state": state(c)}, status_code=400)
+            return done(tr("Запасной ключ {service} работает, баланс {money}.", service=title,
+                           money=money(st["balance"], HUMAN_CURRENCY.get(account.provider, "$"))))
+        if action == "spare-check":
+            account = c.human_account(str(b.get("id") or ""))
+            st = await run_in_threadpool(c.check_human_account, account.id)
+            if not st["ok"]:
+                return JSONResponse({"ok": False, "error": st["error"], "state": state(c)}, status_code=400)
+            return done(tr("Баланс {money}.", money=money(st["balance"], HUMAN_CURRENCY.get(account.provider, "$"))))
+        if action == "spare-note":
+            c.set_human_account_note(str(b.get("id") or ""), str(b.get("note") or ""))
+            return done(tr("Подпись сохранена."))
+        if action == "spare-remove":
+            c.remove_human_account(str(b.get("id") or ""))
+            return done(tr("Запасной ключ удалён."))
+        if action == "key-note":
+            c.set_key_note(str(b.get("name") or ""), str(b.get("note") or ""))
+            return done(tr("Подпись сохранена."))
+        if action == "companion-restart":
+            c.set_companion_restart(bool(b.get("on")))
+            return done(tr("{apps}: приложение держит запущенным.", apps=", ".join(c.cfg.companion_apps)) if c.cfg.companion_restart
+                        else tr("{apps}: приложение больше не запускает само.", apps=", ".join(c.cfg.companion_apps)))
         if action == "human-remove-key":
             c.set_human(key="")
             return done(tr("Ключ людей удалён, слой людей выключен."))

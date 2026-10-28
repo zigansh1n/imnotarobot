@@ -14,10 +14,13 @@ from .i18n import tr
 APP_DIR = Path(os.environ.get("IMNOTAROBOT_HOME") or os.environ.get("CAPTCHA_STACK_HOME")
                or Path.home() / "Library" / "Application Support" / "captcha-stack")
 KEYCHAIN_SERVICE = "captcha-stack"
-HUMAN_PRESETS = {"2captcha": "https://api.2captcha.com", "rucaptcha": "https://api.rucaptcha.com"}
-# RuCaptcha bills and reports balance in roubles, 2Captcha in dollars
-HUMAN_CURRENCY = {"2captcha": "$", "rucaptcha": "₽"}
-HUMAN_TOPUP = {"2captcha": "https://2captcha.com/enterpage", "rucaptcha": "https://rucaptcha.com/enterpage"}
+# all three speak the same createTask / getTaskResult API
+HUMAN_PRESETS = {"2captcha": "https://api.2captcha.com", "rucaptcha": "https://api.rucaptcha.com",
+                 "anticaptcha": "https://api.anti-captcha.com"}
+# RuCaptcha bills and reports balance in roubles, the others in dollars
+HUMAN_CURRENCY = {"2captcha": "$", "rucaptcha": "₽", "anticaptcha": "$"}
+HUMAN_TOPUP = {"2captcha": "https://2captcha.com/enterpage", "rucaptcha": "https://rucaptcha.com/enterpage",
+               "anticaptcha": "https://anti-captcha.com/clients/finance/refill"}
 
 
 # Secrets go through Apple's own `security` tool. An item written by the app itself is tied to that build's code
@@ -102,6 +105,18 @@ class KeyEntry:
     # model ids that accept images, as last listed by the provider: [id, vision, price_in, price_out]
     models: list[list] = field(default_factory=list)
     listable: bool = True
+    # the user's own label, e.g. which service or account the key is from
+    note: str = ""
+
+
+@dataclass
+class HumanAccount:
+    """A spare workers' service account, tried after the main one; the key is in the Keychain under human:<id>."""
+
+    id: str
+    provider: str
+    note: str = ""
+    hint: str = ""
 
 
 @dataclass
@@ -118,6 +133,11 @@ class Config:
     human_base_url: str = ""
     human_api_key: str = ""
     human_key_hint: str = ""
+    human_note: str = ""
+    # tried in order when the main account cannot take a captcha (no money, wrong kind, service down)
+    human_extra: list[HumanAccount] = field(default_factory=list)
+    # spending of a dollar account is added to a rouble limit (and back) at this rate
+    rub_per_usd: float = 80.0
     human_timeout: float = 180.0
     human_poll_interval: float = 5.0
     # in the workers' service currency (see HUMAN_CURRENCY); 0 = no limit
@@ -129,6 +149,8 @@ class Config:
     human_alarm_minutes: float = 30.0
     # programs the model layers depend on (local model servers); started hidden when they are not running
     companion_apps: list[str] = field(default_factory=list)
+    # on: started with the app and again whenever they are not running; off: never started by the app
+    companion_restart: bool = False
     # all cloud models together, USD per day; 0 = no limit. Models with unknown prices are not counted
     cloud_daily_limit_usd: float = 1.0
     # a layer is skipped for a captcha kind once it has this many reports and fails at least half of them
@@ -146,12 +168,13 @@ class Config:
     def load(cls, path: Path | None = None, with_secrets: bool = True) -> "Config":
         path = path or APP_DIR / "config.json"
         raw: dict[str, Any] = json.loads(path.read_text()) if path.exists() else {}
-        names = {f.name for f in fields(cls)} - {"models", "keys", "human_api_key"}
+        names = {f.name for f in fields(cls)} - {"models", "keys", "human_api_key", "human_extra"}
         if "human_daily_limit_usd" in raw and "human_daily_limit" not in raw:
             raw["human_daily_limit"] = raw["human_daily_limit_usd"]
         cfg = cls(**{k: v for k, v in raw.items() if k in names})
         cfg.keys = [KeyEntry(**k) for k in raw.get("keys", [])]
         cfg.models = [ModelSpec(**m) for m in raw.get("models", [])]
+        cfg.human_extra = [HumanAccount(**a) for a in raw.get("human_extra", [])]
         if raw.get("schema", 1) < 2:
             # schema 1 always asked models 3 times; free quotas last longer with one ask
             for m in cfg.models:

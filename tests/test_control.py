@@ -240,6 +240,41 @@ def test_only_companions_that_are_not_running_are_started(ctl, monkeypatch):
 
     monkeypatch.setattr(control.subprocess, "run", run)
     ctl.cfg.companion_apps = ["Busy App", "Antigravity Manager"]
+    ctl.cfg.companion_restart = True
     assert ctl.start_companions() == ["Antigravity Manager"]
     assert ["open", "-g", "-j", "-a", "Antigravity Manager"] in calls
     assert not any(c[0] == "open" and "Busy App" in c for c in calls)
+
+
+def test_companions_are_never_started_unless_keep_running_is_on(ctl, monkeypatch):
+    monkeypatch.setattr(control.subprocess, "run", lambda cmd, **_: type("R", (), {"returncode": 0 if cmd[0] == "open" else 1})())
+    ctl.cfg.companion_apps = ["Antigravity Manager"]
+    assert ctl.start_companions() == []
+    ctl.set_companion_restart(True)
+    assert ctl.cfg.companion_restart and Config.load().companion_restart
+    assert ctl.start_companions() == ["Antigravity Manager"]
+
+
+def test_spare_human_accounts_keep_their_key_in_keychain_and_a_label(ctl):
+    a = ctl.add_human_account("anticaptcha", " ac-secret-key-1234 ", "Anti-Captcha, рабочий")
+    assert ctl.secrets[f"human:{a.id}"] == "ac-secret-key-1234" and a.hint == "ac-s…1234"
+    saved = Config.load().human_extra
+    assert [(x.provider, x.note) for x in saved] == [("anticaptcha", "Anti-Captcha, рабочий")]
+    human = ctl.service.chain.layer("human")
+    assert human.accounts[1].base_url == "https://api.anti-captcha.com" and human.accounts[1].api_key == "ac-secret-key-1234"
+    # a dollar account under a rouble main account is counted in roubles
+    assert human.accounts[1].rate == ctl.cfg.rub_per_usd
+    ctl.set_human_account_note(a.id, "другая подпись")
+    assert Config.load().human_extra[0].note == "другая подпись"
+    with pytest.raises(ValueError):
+        ctl.add_human_account("nosuch", "k")
+    ctl.remove_human_account(a.id)
+    assert not Config.load().human_extra and f"human:{a.id}" not in ctl.secrets
+
+
+def test_notes_on_keys_survive_reload(ctl):
+    ctl.set_human(note="основной, RuCaptcha")
+    ctl.cfg.keys.append(config.KeyEntry(name="proxy", provider="custom"))
+    ctl.set_key_note("proxy", "Antigravity Manager")
+    cfg = Config.load()
+    assert cfg.human_note == "основной, RuCaptcha" and cfg.keys[0].note == "Antigravity Manager"

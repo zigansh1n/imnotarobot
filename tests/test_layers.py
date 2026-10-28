@@ -82,6 +82,38 @@ def test_human_error_is_raised():
         run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
 
 
+def test_human_falls_back_to_a_spare_account_and_reports_to_it():
+    from imnotarobot.layers.human import Account
+
+    calls: list[tuple[str, str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = request.url.path.strip("/")
+        calls.append((request.url.host, method, body))
+        if request.url.host == "main.test":
+            return httpx.Response(200, json={"errorId": 1, "errorCode": "ERROR_ZERO_BALANCE"})
+        if method == "createTask":
+            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
+        if method == "getTaskResult":
+            return httpx.Response(200, json={"errorId": 0, "status": "ready", "solution": {"text": "ok"}, "cost": "0.002"})
+        return httpx.Response(200, json={"errorId": 0})
+
+    layer = HumanLayer("https://main.test", "main", poll_interval=0, transport=httpx.MockTransport(handler),
+                       spares=[Account("https://spare.test", "spare", "Anti-Captcha", rate=80.0)])
+    r = run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
+    assert r.solution == {"text": "ok"} and r.cost == 0.002 * 80 and r.meta["account"] == 1
+    run(layer.report_incorrect(r))
+    assert calls[-1] == ("spare.test", "reportIncorrect", {"clientKey": "spare", "taskId": 7})
+
+
+def test_human_without_a_main_key_uses_the_spare():
+    from imnotarobot.layers.human import Account
+
+    layer = HumanLayer("https://main.test", "", spares=[Account("https://spare.test", "k")])
+    assert layer.available()
+
+
 def test_human_takes_token_captchas_but_not_local_only_ones():
     layer = HumanLayer("https://x", "k")
     assert layer.supports("HCaptchaTaskProxyless") and not layer.supports("SlideMatchTask")

@@ -135,10 +135,19 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; 
 
 /* keys */
 .key { border: .5px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-top: 10px; }
-.models { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 12px; margin: 8px 0; max-height: 180px; overflow: auto; }
-.models label { display: flex; align-items: center; gap: 6px; padding: 3px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.models { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; max-height: 240px; overflow: auto; }
+.chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 12px; border: .5px solid var(--line); border-radius: 999px;
+  font-size: 13px; cursor: default; user-select: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip[hidden] { display: none; }
+.chip input { display: none; }
+.chip small { color: var(--mut); font-size: 11px; }
+.chip:hover { border-color: var(--mut); }
+.chip:has(input:checked) { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.chip:has(input:checked) small { color: inherit; opacity: .65; }
 .enabled-model { display: flex; align-items: center; gap: 8px; padding: 8px 0 4px; border-top: .5px solid var(--line2); flex-wrap: wrap; }
 select.small-select { padding: 2px 6px; font-size: 12px; margin-left: 4px; }
+input.note { border: none; background: transparent; font-size: 12px; color: var(--mut, #888); padding: 2px 0; width: 100%; }
+input.note:focus { outline: none; border-bottom: .5px solid var(--line); color: inherit; }
 details { margin-top: 10px; } details summary { color: var(--mut); cursor: default; list-style: none; } details summary:before { content: "› "; }
 details[open] summary:before { content: "⌄ "; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -281,8 +290,10 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
       <div class="label">Люди</div>
       <div class="panel">
         <div class="row">
-          <div class="grow"><h2 id="humanTitle">RuCaptcha</h2><div id="humanState" class="mut"></div></div>
-          <select id="humanProvider"><option value="rucaptcha">RuCaptcha · рубли</option><option value="2captcha">2Captcha · доллары</option></select>
+          <div class="grow"><h2 id="humanTitle">RuCaptcha</h2>
+            <input class="note" id="humanNote" placeholder="Подпись: чей ключ, для чего" maxlength="80">
+            <div id="humanState" class="mut"></div></div>
+          <select id="humanProvider"><option value="rucaptcha">RuCaptcha · рубли</option><option value="2captcha">2Captcha · доллары</option><option value="anticaptcha">Anti-Captcha · доллары</option></select>
         </div>
         <form class="row" id="humanKeyForm" style="margin-top:12px">
           <input class="grow" id="humanKey" type="password" placeholder="Новый ключ" autocomplete="off" required>
@@ -292,6 +303,15 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
           <button id="checkHuman">Проверить баланс</button><a class="button" id="topup" target="_blank">Пополнить</a>
           <span class="grow"></span><button class="danger" id="removeHuman">Удалить ключ</button>
         </div>
+        <div class="label" style="margin-top:16px">Запасные ключи</div>
+        <div class="mut" style="font-size:12px">Берут капчу по порядку, если основной не смог: нет денег, сервис не решает такой вид или не отвечает.</div>
+        <div id="spares"></div>
+        <form class="row" id="spareForm" style="margin-top:10px">
+          <select id="spareProvider"><option value="anticaptcha">Anti-Captcha</option><option value="2captcha">2Captcha</option><option value="rucaptcha">RuCaptcha</option></select>
+          <input class="grow" id="spareKey" type="password" placeholder="Ключ" autocomplete="off" required>
+          <input class="grow" id="spareNote" placeholder="Подпись" maxlength="80">
+          <button class="primary">Добавить</button>
+        </form>
       </div>
 
       <div class="label">Сравнение моделей</div>
@@ -313,6 +333,8 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
           <label class="switch"><input type="checkbox" id="requireKey"><span></span></label></div>
         <div class="kv"><div><b>Запускать при входе</b><br><span class="mut">Начинает работать сразу после включения Мака.</span></div>
           <label class="switch"><input type="checkbox" id="login"><span></span></label></div>
+        <div class="kv" id="companionRow" hidden><div><b>Держать запущенным <span id="companionNames"></span></b><br><span class="mut">Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.</span></div>
+          <label class="switch"><input type="checkbox" id="companionRestart"><span></span></label></div>
       </div>
       <details><summary>Примеры запросов</summary>
         <div class="label" style="margin-top:12px">Новый API</div><pre id="exampleV2"></pre>
@@ -444,6 +466,12 @@ const EN = {
   "Создать новый ключ доступа? Старый перестанет работать — его нужно будет заменить в ваших программах.": "Create a new access key? The old one stops working, replace it in your programs.",
   "Создать": "Create", "Удалить ключ людей? Последняя ступень выключится.": "Remove the humans key? The last step turns off.",
   "Запустить": "Start", "Скачать": "Download",
+  "Подпись: чей ключ, для чего": "Label: whose key, what for", "Подпись: откуда ключ, для чего": "Label: where the key is from, what for",
+  "Запасные ключи": "Spare keys", "Подпись": "Label", "Ключ": "Key", "Добавить": "Add", "Проверить": "Check", "Пополнить": "Top up",
+  "Берут капчу по порядку, если основной не смог: нет денег, сервис не решает такой вид или не отвечает.": "They take a captcha in order when the main key could not: no money, the service does not solve that kind or does not answer.",
+  "работает": "works", "роутер": "router", "не проверен": "not checked", "Удалить запасной ключ?": "Remove the spare key?", "Держать запущенным": "Keep running",
+  "Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.": "On: the app starts the program and opens it again if it was quit. Off: the app never starts it.",
+  "Anti-Captcha · доллары": "Anti-Captcha · dollars",
   "Скачать набор настоящих капч с Hugging Face (~36 МБ)? Лицензия не указана — только для личной проверки.": "Download a set of real captchas from Hugging Face (~36 MB)? No license is given, for personal testing only.",
   "цена неизвестна — поставщик её не публикует": "price unknown, the provider does not publish it", "цена неизвестна": "price unknown", "только что": "just now",
 };
@@ -532,14 +560,24 @@ function show(view) {
 }
 if (!POP) { const v = P.get("open") || (() => { try { return localStorage.getItem("view"); } catch (e) { return null; } })(); if (v && $("v-" + v)) show(v); }
 
+// provider paths such as accounts/fireworks/models/kimi-k3 -> name "kimi-k3", note "fireworks"
+function modelName(id) { return String(id).split("/").pop(); }
+function modelNote(id) {
+  const parts = String(id).split("/");
+  if (parts.length < 2) return "";
+  const m = String(id).match(/^accounts\/([^/]+)\/(models|routers)\//);
+  if (m) return m[2] === "routers" ? `${m[1]} · роутер` : m[1];
+  return parts.slice(0, -1).join("/");
+}
+const HUMAN_NAMES = {rucaptcha: "RuCaptcha", "2captcha": "2Captcha", anticaptcha: "Anti-Captcha"};
 function setIfIdle(id, value) { if (document.activeElement !== $(id)) $(id).value = value; }
 
 // a layer's short name for the path and the tiles
 function shortTitle(l) {
   if (l.id === "local") return "Своя модель";
   if (l.id === "browser") return "Браузер";
-  if (l.id === "human") return S.human.provider === "2captcha" ? "2Captcha" : "RuCaptcha";
-  const model = l.title.split(" · ")[0], g = model.match(/^gemini-[\d.]+-(flash|pro)(?:-(low|medium|high))?/i);
+  if (l.id === "human") return HUMAN_NAMES[S.human.provider] || S.human.provider;
+  const model = modelName(l.title.split(" · ")[0]), g = model.match(/^gemini-[\d.]+-(flash|pro)(?:-(low|medium|high))?/i);
   if (g) return "Gemini " + (g[2] === "high" ? "High" : g[1][0].toUpperCase() + g[1].slice(1));
   return model;
 }
@@ -640,7 +678,7 @@ function renderLayers(s, on, hotId) {
     const meta = !l.ready && l.enabled ? `<span class="tag warn">${esc(l.why)}</span>` : l.id === "human" && s.human.limit ? `${solvedBy(l.id)} сегодня · лимит ${money(s.human.limit, s.human.currency)}` : `${solvedBy(l.id)} сегодня`;
     return `<div class="layer ${l.enabled ? "" : "off"} ${l.id === hotId ? "hot" : ""}" data-id="${esc(l.id)}" draggable="${l.enabled}">
       <span class="grip">⋮⋮</span><div class="dot">${num}</div>
-      <div><b title="${esc(l.title)}">${esc(shortTitle(l))}</b><small>${esc(layerNote(l))}${l.id.startsWith("vlm:") ? " · " + esc(l.title) : ""}</small></div>
+      <div><b title="${esc(l.title)}">${esc(shortTitle(l))}</b><small>${esc(layerNote(l))}${l.id.startsWith("vlm:") ? " · " + esc(l.title.split(" · ").map((x, i) => i ? x : modelName(x)).join(" · ")) : ""}</small></div>
       <span class="meta num">${meta}</span>
       <label class="switch"><input type="checkbox" data-layer="${esc(l.id)}" ${l.enabled ? "checked" : ""}><span></span></label></div>`;
   }).join("");
@@ -661,6 +699,12 @@ document.addEventListener("drop", e => {
   if (from >= 0 && to >= 0 && from !== to) api("move-layer", {id, step: to - from});
 });
 
+// the list is redrawn on every refresh; a list the user opened stays open
+const openModelLists = new Set();
+document.addEventListener("toggle", e => {
+  const name = e.target.dataset?.modelsOf;
+  if (name !== undefined) e.target.open ? openModelLists.add(name) : openModelLists.delete(name);
+}, true);
 function renderKeys(s) {
   $("detecting").hidden = !s.detecting; $("detecting").innerHTML = s.detecting ? `<span class="spinner"></span> ${esc(s.detecting)}…` : "";
   const box = $("keys"), focused = document.activeElement?.dataset?.filter;
@@ -673,18 +717,19 @@ function renderKeys(s) {
       const error = err ? `<span class="mut" title="${esc(err.error)}" style="font-size:12px">⚠ ${esc(err.error).slice(0, 80)} · ${ago(err.at)}</span>` : "";
       const pick = (kind, title) => `<label class="mut" style="font-size:12px">${title}<select class="small-select" data-effort="${kind}" data-key="${esc(k.name)}" data-model="${esc(id)}">
         ${Object.entries(EFFORTS).map(([v, t]) => `<option value="${v}" ${ef[kind] === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>`;
-      return `<div class="enabled-model"><b>${esc(id)}</b>${test}${error}<span class="grow"></span>
+      return `<div class="enabled-model"><b title="${esc(id)}">${esc(modelName(id))}</b>${modelNote(id) ? `<span class="mut" style="font-size:12px">${esc(modelNote(id))}</span>` : ""}${test}${error}<span class="grow"></span>
         <button class="small" data-test="${esc(k.name)}" data-model="${esc(id)}">Проверить</button>
         <button class="small" data-off="${esc(k.name)}" data-model="${esc(id)}">Выключить</button></div>
         <div class="row" style="gap:14px;padding:2px 0 8px">${pick("recognition", "Раздумья: текст и сетки")}${pick("clicks", "клики")}
         <button class="small" data-efforts="${esc(k.name)}" data-model="${esc(id)}">Сравнить уровни</button>
         ${ef.unsupported ? '<span class="mut" style="font-size:12px">поставщик не принимает эту настройку</span>' : ""}</div>`;
     }).join("");
-    const all = k.models.map(m => `<label title="${esc(m.id)}"><input type="checkbox" data-key="${esc(k.name)}" data-toggle="${esc(m.id)}" ${m.enabled ? "checked" : ""}>${esc(m.id)}</label>`).join("");
+    const all = k.models.map(m => `<label class="chip" title="${esc(m.id)}"><input type="checkbox" data-key="${esc(k.name)}" data-toggle="${esc(m.id)}" ${m.enabled ? "checked" : ""}>${esc(modelName(m.id))}${modelNote(m.id) ? `<small>${esc(modelNote(m.id))}</small>` : ""}</label>`).join("");
     return `<div class="key"><div class="row"><b class="grow">${esc(k.name)} <span class="mono mut">${esc(k.hint)}</span></b>
         <span class="tag ${enabledIds.length ? "good" : ""}">включено ${enabledIds.length} из ${k.models.length}</span></div>
+      <input class="note" data-note-key="${esc(k.name)}" value="${esc(k.note || "")}" placeholder="Подпись: откуда ключ, для чего" maxlength="80">
       ${enabled || '<div class="mut" style="margin-top:8px">Отметьте модели ниже — они встанут в путь капчи.</div>'}
-      <details ${enabledIds.length ? "" : "open"}><summary>Все модели с картинками</summary>
+      <details data-models-of="${esc(k.name)}" ${openModelLists.has(k.name) || !enabledIds.length ? "open" : ""}><summary>Все модели с картинками</summary>
         ${k.models.length > 8 ? `<input data-filter="${esc(k.name)}" placeholder="Найти модель" style="width:100%;margin-top:8px">` : ""}
         <div class="models" data-models="${esc(k.name)}">${all || '<span class="empty">Список недоступен — впишите название вручную.</span>'}</div>
         <form class="row" data-manual="${esc(k.name)}"><input class="grow" placeholder="Вписать модель вручную"><button>Добавить</button></form>
@@ -698,7 +743,8 @@ function renderKeys(s) {
 function renderHuman(s) {
   const h = s.human, cur = h.currency, st = h.status || {};
   setIfIdle("humanProvider", h.provider);
-  $("humanTitle").textContent = h.provider === "2captcha" ? "2Captcha" : "RuCaptcha";
+  $("humanTitle").textContent = HUMAN_NAMES[h.provider] || h.provider;
+  setIfIdle("humanNote", h.note || "");
   $("humanState").innerHTML = !h.hasKey && h.legacyKey ? '<span class="tag warn">введите ключ ещё раз</span> прошлая версия сохранила его так, что новая не может прочитать' :
     !h.hasKey ? "Нет ключа — последняя ступень выключена." :
     st.ok ? `<span class="tag ${st.balance < h.lowBalance ? "warn" : "good"}">ключ работает</span> <span class="mono">${esc(h.hint)}</span> · баланс <b>${money(st.balance, cur)}</b>${st.balance < h.lowBalance ? " — пора пополнить" : ""}` :
@@ -706,6 +752,19 @@ function renderHuman(s) {
     `<span class="tag">ключ сохранён</span> <span class="mono">${esc(h.hint)}</span>`;
   $("topup").href = h.topup || "#";
   $("removeHuman").disabled = $("checkHuman").disabled = !h.hasKey;
+  const box = $("spares");
+  if (box.contains(document.activeElement)) return;
+  box.innerHTML = h.spares.map(a => {
+    const st = a.status || {};
+    const state = st.ok ? `<span class="tag good">работает</span> баланс <b>${money(st.balance, a.currency)}</b>` :
+      st.error ? `<span class="tag bad">ошибка</span> ${esc(st.error)}` : '<span class="tag">не проверен</span>';
+    return `<div class="key"><div class="row"><b class="grow">${esc(a.title)} <span class="mono mut">${esc(a.hint)}</span></b>
+        <button class="small" data-spare-check="${esc(a.id)}">Проверить</button>
+        ${a.topup ? `<a class="button small" href="${esc(a.topup)}" target="_blank">Пополнить</a>` : ""}
+        <button class="small danger" data-spare-remove="${esc(a.id)}">Удалить</button></div>
+      <input class="note" data-note-spare="${esc(a.id)}" value="${esc(a.note || "")}" placeholder="Подпись: чей ключ, для чего" maxlength="80">
+      <div class="mut" style="font-size:12px">${state}</div></div>`;
+  }).join("");
 }
 
 function renderTiles(t) {
@@ -732,6 +791,9 @@ function renderConnect(s) {
   $("addr").textContent = s.address;
   $("clientKey").textContent = s.access.required ? s.access.key : "не требуется";
   $("requireKey").checked = s.access.required; $("login").checked = s.startAtLogin;
+  $("companionRow").hidden = !s.companions.apps.length;
+  $("companionNames").textContent = s.companions.apps.join(", ");
+  $("companionRestart").checked = s.companions.restart;
   $("copyKey").disabled = $("newKey").disabled = !s.access.required;
   const key = s.access.required ? s.access.key : t("любой");
   const [pic, num, id] = LANG === "en" ? ["<base64 of the picture>", "<number from the answer>", "<id>"] : ["<base64 картинки>", "<номер из ответа>", "<номер>"];
@@ -872,6 +934,8 @@ document.addEventListener("click", async e => {
   if (t.id === "shareResults") return api("share-results", {}, t);
   if (t.id === "tilesGet") return api("tiles-download", {}, t);
   if (t.id === "tilesRemove") { if (await ask("Удалить модель клеток? Сетки reCAPTCHA снова будет решать облачная модель.", "Удалить")) api("tiles-remove", {}, t); return; }
+  if (d.spareCheck) return api("spare-check", {id: d.spareCheck}, t);
+  if (d.spareRemove) { if (await ask("Удалить запасной ключ?", "Удалить")) api("spare-remove", {id: d.spareRemove}, t); return; }
   if (d.refresh) return api("refresh-key", {name: d.refresh}, t);
   if (d.remove) { if (await ask(`Удалить ключ ${d.remove} и его модели?`, "Удалить")) return api("remove-key", {name: d.remove}, t); return; }
   if (d.bench) return startBench(d.bench, t);
@@ -896,6 +960,10 @@ document.addEventListener("change", e => {
   if (t.id === "login") return api("login", {on: t.checked});
   if (t.id === "requireKey") return api("access", {required: t.checked});
   if (t.id === "humanProvider") return api("human-provider", {provider: t.value});
+  if (t.id === "humanNote") return api("human-note", {note: t.value});
+  if (t.dataset.noteSpare) return api("spare-note", {id: t.dataset.noteSpare, note: t.value});
+  if (t.dataset.noteKey) return api("key-note", {name: t.dataset.noteKey, note: t.value});
+  if (t.id === "companionRestart") return api("companion-restart", {on: t.checked});
   if (t.id === "journalFilter") return renderJournal(S.recent);
   if (t.id === "popRun") return api("pause", {paused: !t.checked});
 });
@@ -911,6 +979,10 @@ document.addEventListener("submit", async e => {
     if (await api("add-key", {secret: $("keySecret").value.trim(), baseUrl: $("keyBase").value.trim()}, $("keyAdd"))) { $("keySecret").value = ""; $("keyBase").value = ""; }
   } else if (f.id === "humanKeyForm") {
     if (await api("human-key", {key: $("humanKey").value.trim()}, btn)) $("humanKey").value = "";
+  } else if (f.id === "spareForm") {
+    if (await api("spare-add", {provider: $("spareProvider").value, key: $("spareKey").value.trim(), note: $("spareNote").value.trim()}, btn)) {
+      $("spareKey").value = ""; $("spareNote").value = "";
+    }
   } else if (f.id === "limitsForm") {
     if (await api("limits", {cloud: $("limCloud").value, human: $("limHuman").value, low: $("limLow").value}, btn)) btn.blur();
   } else if (f.dataset.manual) {

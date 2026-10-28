@@ -272,3 +272,29 @@ def test_update_button_starts_the_install(ui, monkeypatch):
             break
         time.sleep(0.02)
     assert calls == [("9.0.0", "/Applications/ImNotARobot.app"), "relaunch"]
+
+
+def test_a_spare_key_is_checked_labelled_and_never_shown(ui, monkeypatch):
+    c, client = ui
+    from imnotarobot.layers.human import HumanLayer
+
+    async def balance(self, index=0):
+        assert self.accounts[index].api_key == "ac-very-secret-9999"
+        return 12.5
+
+    monkeypatch.setattr(HumanLayer, "balance", balance)
+    r = client.post("/api/ui/spare-add", json={"provider": "anticaptcha", "key": "ac-very-secret-9999", "note": "от Васи"}).json()
+    assert r["ok"] and r["message"] == "Запасной ключ Anti-Captcha работает, баланс $12.50."
+    spare = r["state"]["human"]["spares"][0]
+    assert (spare["title"], spare["note"], spare["status"]["balance"]) == ("Anti-Captcha", "от Васи", 12.5)
+    assert "very-secret" not in client.get("/api/ui/state").text
+    assert client.post("/api/ui/spare-note", json={"id": spare["id"], "note": "рабочий"}).json()["state"]["human"]["spares"][0]["note"] == "рабочий"
+    assert client.post("/api/ui/spare-remove", json={"id": spare["id"]}).json()["state"]["human"]["spares"] == []
+    assert client.post("/api/ui/spare-remove", json={"id": "nope"}).status_code == 400
+
+
+def test_restart_switch_shows_only_with_companion_apps(ui):
+    c, client = ui
+    assert client.get("/api/ui/state").json()["companions"] == {"apps": [], "restart": False}
+    r = client.post("/api/ui/companion-restart", json={"on": True}).json()
+    assert r["state"]["companions"]["restart"] and c.cfg.companion_restart

@@ -18,16 +18,17 @@ import uvicorn
 
 from . import config as config_mod
 from . import bench, testset
-from .config import HUMAN_CURRENCY, HUMAN_PRESETS, Config, KeyEntry
+from .config import HUMAN_CURRENCY, HUMAN_PRESETS, Config, HumanAccount, KeyEntry
 from .discovery import detect_sync, recommended_models
 from .providers import PRESETS, ModelSpec
 from .server import create_app
+from .layers import HumanLayer
 from .service import Service
 from .i18n import tr
 
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "app.captcha-stack.plist"
 LAYER_TITLES = {"local": tr("Локальная модель"), "browser": tr("Браузер (галочки: reCAPTCHA, hCaptcha, Turnstile)"), "human": tr("Люди")}
-HUMAN_TITLES = {"rucaptcha": "RuCaptcha", "2captcha": "2Captcha"}
+HUMAN_TITLES = {"rucaptcha": "RuCaptcha", "2captcha": "2Captcha", "anticaptcha": "Anti-Captcha"}
 
 
 def money(value: float, currency: str) -> str:
@@ -52,6 +53,8 @@ class Controller:
         self.port: int | None = None
         self.port_note = ""
         self.human_status: dict = {}
+        # balance checks of the spare accounts, by account id
+        self.spare_status: dict[str, dict] = {}
         self.legacy_human_key = not self.cfg.human_api_key and config_mod.legacy_secret_exists("human")
         self.ui_token = secrets.token_urlsafe(24)
         # set by the menu bar app: the page asks for native things (open the window, quit) through these
@@ -68,6 +71,8 @@ class Controller:
 
         for port in range(self.cfg.port, self.cfg.port + 20):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                # as uvicorn does: connections of a previous run still closing must not push us to the next port
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 try:
                     s.bind(("127.0.0.1", port))
                     return port
@@ -212,7 +217,8 @@ class Controller:
         config_mod.set_secret(f"model:{name}", key.strip())
         self._apply()
 
-    def set_human(self, provider: str | None = None, key: str | None = None, daily_limit: float | None = None) -> None:
+    def set_human(self, provider: str | None = None, key: str | None = None, daily_limit: float | None = None,
+                  note: str | None = None) -> None:
         if provider is not None:
             if provider not in HUMAN_PRESETS:
                 raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
@@ -228,6 +234,62 @@ class Controller:
             if daily_limit < 0:
                 raise ValueError(tr("лимит не может быть отрицательным"))
             self.cfg.human_daily_limit = daily_limit
+        if note is not None:
+            self.cfg.human_note = note.strip()[:80]
+        self._apply()
+
+    def add_human_account(self, provider: str, key: str, note: str = "") -> HumanAccount:
+        """A spare workers' account, used when the main one cannot take a captcha."""
+        if provider not in HUMAN_PRESETS:
+            raise ValueError(tr("сервис {provider} не знаю; есть: {known}", provider=repr(provider), known=", ".join(HUMAN_PRESETS)))
+        key = key.strip()
+        if not key:
+            raise ValueError(tr("вставьте ключ"))
+        account = HumanAccount(id=secrets.token_hex(4), provider=provider, note=note.strip()[:80], hint=f"{key[:4]}…{key[-4:]}")
+        config_mod.set_secret(f"human:{account.id}", key)
+        self.cfg.human_extra.append(account)
+        self._apply()
+        return account
+
+    def human_account(self, account_id: str) -> HumanAccount:
+        found = next((a for a in self.cfg.human_extra if a.id == account_id), None)
+        if found is None:
+            raise ValueError(tr("такого ключа нет"))
+        return found
+
+    def remove_human_account(self, account_id: str) -> None:
+        self.human_account(account_id)
+        self.cfg.human_extra = [a for a in self.cfg.human_extra if a.id != account_id]
+        config_mod.set_secret(f"human:{account_id}", "")
+        self.spare_status.pop(account_id, None)
+        self._apply()
+
+    def set_human_account_note(self, account_id: str, note: str) -> None:
+        self.human_account(account_id).note = note.strip()[:80]
+        self._apply()
+
+    def check_human_account(self, account_id: str) -> dict:
+        index = 1 + self.cfg.human_extra.index(self.human_account(account_id))
+        human = self.service.chain.layer("human")
+        if not isinstance(human, HumanLayer) or index >= len(human.accounts):
+            status = {"ok": False, "error": tr("слой людей выключен")}
+        else:
+            try:
+                status = {"ok": True, "balance": asyncio.run(human.balance(index))}
+            except Exception as e:
+                status = {"ok": False, "error": str(e)[:120]}
+        self.spare_status[account_id] = status
+        return status
+
+    def set_key_note(self, name: str, note: str) -> None:
+        entry = next((k for k in self.cfg.keys if k.name == name), None)
+        if entry is None:
+            raise ValueError(tr("такого ключа нет"))
+        entry.note = note.strip()[:80]
+        self._apply()
+
+    def set_companion_restart(self, on: bool) -> None:
+        self.cfg.companion_restart = on
         self._apply()
 
     def set_paused(self, paused: bool) -> None:
@@ -503,7 +565,12 @@ class Controller:
         self.alarm_quiet_since = time.monotonic()
 
     def start_companions(self) -> list[str]:
-        """Starts, hidden, every companion program that is not running; returns the ones it started."""
+        """Starts, hidden, every companion program that is not running; returns the ones it started.
+
+        Only with companion_restart on: otherwise the user decides when they run.
+        """
+        if not self.cfg.companion_restart:
+            return []
         started = []
         for name in self.cfg.companion_apps:
             if subprocess.run(["pgrep", "-qf", f"/{re.escape(name)}\\.app/Contents/MacOS/"]).returncode == 0:

@@ -125,3 +125,15 @@ def test_no_reseller_is_tried_unless_the_user_set_one_up(tmp_path, monkeypatch):
     (tmp_path / ".codex").mkdir()
     (tmp_path / ".codex" / "config.toml").write_text('[model_providers.mine]\nbase_url = "https://mine.example/v1"\n')
     assert discovery.local_reseller_urls() == ["https://mine.example/v1"]
+
+
+def test_fireworks_flags_decide_vision_and_drop_non_chat_models():
+    from imnotarobot.discovery import _parse_models
+
+    models = _parse_models("custom", {"data": [
+        {"id": "accounts/fireworks/models/kimi-k3", "supports_chat": True, "supports_image_input": True},
+        {"id": "accounts/fireworks/models/glm-5p3", "supports_chat": True, "supports_image_input": False},
+        {"id": "accounts/fireworks/models/qwen3-embedding-8b", "kind": "EMBEDDING_MODEL", "supports_chat": True},
+        {"id": "accounts/fireworks/models/rune", "supports_chat": False, "supports_image_input": True},
+    ]})
+    assert [(m.id.rsplit("/", 1)[-1], m.vision, m.sure) for m in models] == [("kimi-k3", True, True), ("glm-5p3", False, True)]
