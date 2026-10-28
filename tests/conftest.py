@@ -28,3 +28,12 @@ def no_real_keychain(monkeypatch):
     import imnotarobot.config as config
 
     monkeypatch.setattr(config, "legacy_secret_exists", lambda account: False)
+
+
+@pytest.fixture(autouse=True)
+def no_real_permissions(monkeypatch):
+    """The permission checks would ask this very Mac about its login item and notifications."""
+    import imnotarobot.permissions as permissions
+
+    monkeypatch.setattr(permissions, "background_allowed", lambda agent: None)
+    monkeypatch.setattr(permissions, "notifications_allowed", lambda: None)

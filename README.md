@@ -141,6 +141,19 @@ packaging/build.sh          # builds ImNotARobot.app into ~/Applications
 
 The app speaks the system language: English or Russian.
 
+### Signing the build
+
+Without a signing identity every build is ad hoc: macOS treats each build as a new program and asks
+again for "Allow in the Background" (the login item) and notifications after every build. Run
+`packaging/make_cert.sh` once: it creates a self-signed certificate "ImNotARobot Local" in your
+login keychain (no password needed), and `build.sh` then signs every build with it — to macOS it is
+the same program from build to build. The app window still warns when either permission is off,
+with a button into the right System Settings pane.
+
+`IMNOTAROBOT_SIGN_IDENTITY` signs with another identity; `IMNOTAROBOT_DISTPATH` together with
+`IMNOTAROBOT_NO_INSTALL=1` builds into a directory of your choice without installing into
+~/Applications.
+
 ## Responsible use
 
 Use it on your own sites, for testing, and for automation you are allowed to run. Respect the terms of the sites you visit. The project does not target any particular site.

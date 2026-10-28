@@ -60,6 +60,8 @@ class Controller:
         # set by the menu bar app: the page asks for native things (open the window, quit) through these
         self.hooks: dict[str, Any] = {}
         self.alarm_quiet_since = 0.0
+        # what macOS allows the app to do (background login item, notifications); None when unknown
+        self.permissions: dict[str, bool | None] = {}
         # newer release found on GitHub; job tracks a download started from the window
         self.update: dict | None = None
         self.update_job: dict = {}
@@ -689,6 +691,25 @@ class Controller:
         self.promote([model_name])
 
     # --- start at login ---------------------------------------------------------
+    def refresh_permissions(self) -> dict[str, bool | None]:
+        """Asks macOS what it allows the app to do; the menu bar refreshes this now and then."""
+        from . import permissions
+
+        self.permissions = {"background": permissions.background_allowed(LAUNCH_AGENT),
+                            "notifications": permissions.notifications_allowed()}
+        return self.permissions
+
+    def permission_warnings(self) -> list[dict[str, str]]:
+        """What macOS blocks, for the window to warn about; each comes with a Settings pane to open."""
+        if not self.permissions:
+            self.refresh_permissions()
+        out = []
+        if self.starts_at_login() and self.permissions.get("background") is False:
+            out.append({"id": "background", "text": tr("macOS не разрешает приложению работать в фоне — после включения Мака оно не запустится.")})
+        if self.permissions.get("notifications") is False:
+            out.append({"id": "notifications", "text": tr("Уведомления выключены — приложение не сможет предупредить о неполадках.")})
+        return out
+
     @staticmethod
     def launch_agent_plist() -> dict:
         # inside the bundled app sys.executable is the app itself
