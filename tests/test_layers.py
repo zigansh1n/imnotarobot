@@ -7,7 +7,7 @@ import pytest
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
 
 from imnotarobot.layers import HumanLayer, LocalLayer, Unsolvable
-from imnotarobot.layers.human import ACCOUNT_ERRORS, CAPTCHA_ERRORS, Account
+from imnotarobot.layers.human import ACCOUNT_ERRORS, CAPTCHA_ERRORS, PERMANENT_ERRORS, Account
 from helpers import png_b64, text_image
 
 
@@ -200,9 +200,9 @@ def test_human_errors_while_polling_stop_at_the_first_account(code):
     assert [h for h, _ in calls] == ["main.test", "main.test"]
 
 
-@pytest.mark.parametrize("code", sorted(ACCOUNT_ERRORS))
-def test_human_account_errors_while_polling_stop_at_the_first_account(code):
-    # the account failed only after the task was accepted: moving on could mean a second payment
+@pytest.mark.parametrize("code", sorted(PERMANENT_ERRORS))
+def test_human_permanent_account_errors_while_polling_stop_at_the_first_account(code):
+    # a bad key or an empty balance will not fix itself: stop with the code visible, no fallback
     calls: list[tuple[str, str]] = []
 
     def main_answer(request: httpx.Request) -> httpx.Response:
@@ -216,27 +216,15 @@ def test_human_account_errors_while_polling_stop_at_the_first_account(code):
     assert [h for h, _ in calls] == ["main.test", "main.test"]
 
 
-def test_human_http_5xx_while_polling_stops_without_a_fallback():
-    # the service answered and refused: no second attempt on another account
-    calls: list[tuple[str, str]] = []
-
-    def main_answer(request: httpx.Request) -> httpx.Response:
-        if request.url.path.strip("/") == "createTask":
-            return httpx.Response(200, json={"errorId": 0, "taskId": 7})
-        return httpx.Response(502, text="Bad Gateway")
-
-    layer = human_layer(main_answer, calls)
-    with pytest.raises(Unsolvable, match="HTTP 502"):
-        run(layer.solve({"type": "ImageToTextTask", "body": "eA=="}))
-    assert [h for h, _ in calls] == ["main.test", "main.test"]
-
-
 @pytest.mark.parametrize("answer", [
     httpx.ConnectError("no route to host"),
     httpx.Response(200, text="<html>proxy error</html>"),
-], ids=["network", "non-json"])
-def test_human_keeps_polling_through_lost_answers_after_acceptance(answer):
-    # the workers may still solve and charge for an accepted task: a lost answer keeps it polling
+    httpx.Response(502, text="Bad Gateway"),
+    httpx.Response(200, json={"errorId": 1, "errorCode": "ERROR_NO_SLOT_AVAILABLE"}),
+], ids=["network", "non-json", "http-502", "no-slots"])
+def test_human_keeps_polling_through_transient_failures_after_acceptance(answer):
+    # the workers may still solve and charge for an accepted task: a momentary inability of
+    # the service to answer (a 5xx, no slots, a lost packet) keeps it polling to the deadline
     calls: list[tuple[str, str]] = []
 
     def main_answer(request: httpx.Request) -> httpx.Response:
@@ -252,10 +240,15 @@ def test_human_keeps_polling_through_lost_answers_after_acceptance(answer):
     assert {h for h, _ in calls} == {"main.test"}  # the spare was never asked
 
 
-def test_human_survives_a_lost_answer_while_polling():
-    # one lost poll, then the answer arrives: the same account still solves it
+@pytest.mark.parametrize("failure", [
+    httpx.ConnectError("no route to host"),
+    httpx.Response(502, text="Bad Gateway"),
+    httpx.Response(200, json={"errorId": 1, "errorCode": "ERROR_NO_SLOT_AVAILABLE"}),
+], ids=["network", "http-502", "no-slots"])
+def test_human_survives_a_transient_failure_while_polling(failure):
+    # one momentary failure, then the answer arrives: the same account still solves it
     calls: list[tuple[str, str]] = []
-    polls = iter([httpx.ConnectError("no route to host"),
+    polls = iter([failure,
                   httpx.Response(200, json={"errorId": 0, "status": "ready", "solution": {"text": "ok"}, "cost": "0.002"})])
 
     def main_answer(request: httpx.Request) -> httpx.Response:

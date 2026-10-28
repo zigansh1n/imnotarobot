@@ -28,11 +28,16 @@ ERROR_TEXT = {code: tr(text) for code, text in {
 # Token captchas (reCAPTCHA, hCaptcha, Turnstile…) are only solvable here, so any task type is forwarded as is.
 LOCAL_ONLY_TYPES = frozenset({"SlideMatchTask"})
 
-# these say the account or its service failed, so the next account may do better
-ACCOUNT_ERRORS = frozenset({
-    "ERROR_KEY_DOES_NOT_EXIST", "ERROR_WRONG_USER_KEY", "ERROR_ZERO_BALANCE", "ERROR_NO_SLOT_AVAILABLE",
+# these say the account itself is no good: another account may do better, and polling on it is pointless
+PERMANENT_ERRORS = frozenset({
+    "ERROR_KEY_DOES_NOT_EXIST", "ERROR_WRONG_USER_KEY", "ERROR_ZERO_BALANCE",
     "ERROR_IP_NOT_ALLOWED", "ERROR_IP_BANNED", "ERROR_TASK_NOT_SUPPORTED",
 })
+# these say the service cannot answer just now: before the task is accepted another account may
+# do better, and after that polling may simply ask again later
+TRANSIENT_ERRORS = frozenset({"ERROR_NO_SLOT_AVAILABLE"})
+# every failure about the account or its service, as opposed to a failure of the captcha itself
+ACCOUNT_ERRORS = PERMANENT_ERRORS | TRANSIENT_ERRORS
 # these say the captcha itself failed: another account would only repeat that, or be paid twice
 CAPTCHA_ERRORS = frozenset({
     "ERROR_CAPTCHA_UNSOLVABLE", "ERROR_TOO_BIG_CAPTCHA_FILESIZE", "ERROR_ZERO_CAPTCHA_FILESIZE",
@@ -41,7 +46,11 @@ CAPTCHA_ERRORS = frozenset({
 
 
 class AccountError(Unsolvable):
-    """The account or its service failed: before the task was accepted, the next account may take it."""
+    """The account itself is no good (bad key, no money, banned IP): another account may do better."""
+
+
+class TransientError(Unsolvable):
+    """The service cannot answer just now (overloaded, HTTP 5xx): asking again may well work."""
 
 
 class CaptchaError(Unsolvable):
@@ -68,8 +77,8 @@ class HumanLayer(Layer):
     """2Captcha / RuCaptcha / Anti-Captcha API v2: workers plus their own AI, the last resort.
 
     Spare accounts are tried in order while the main one fails as an account or a service and has
-    not taken the captcha yet; once a service has accepted it, no failure moves on to a spare,
-    so a task is never paid for twice.
+    not taken the captcha yet. Once a service has accepted it, no failure moves on to a spare
+    and a momentary breakdown is waited out, so a task is never paid for twice.
     """
 
     name = "human"
@@ -101,14 +110,16 @@ class HumanLayer(Layer):
         account = account or self.accounts[0]
         r = await client.post(f"{account.base_url}/{method}", json={"clientKey": account.api_key, **body})
         if r.status_code >= 500:
-            raise AccountError(tr("сервис ответил HTTP {status}: {text}", status=r.status_code, text=r.text[:200]))
+            raise TransientError(tr("сервис ответил HTTP {status}: {text}", status=r.status_code, text=r.text[:200]))
         j = r.json()
         if j.get("errorId"):
             code = j.get("errorCode") or ""
             text = f"{ERROR_TEXT.get(code, j.get('errorDescription') or tr('ошибка сервиса'))} ({code})"
             if code in CAPTCHA_ERRORS:
                 raise CaptchaError(text)
-            if code in ACCOUNT_ERRORS:
+            if code in TRANSIENT_ERRORS:
+                raise TransientError(text)
+            if code in PERMANENT_ERRORS:
                 raise AccountError(text)
             raise Unsolvable(text)
         return j
@@ -139,9 +150,10 @@ class HumanLayer(Layer):
                     await asyncio.sleep(self.poll_interval)
                     try:
                         j = await self._post(client, "getTaskResult", {"taskId": task_id}, account)
-                    except (httpx.HTTPError, ValueError):
-                        # the task is with the workers already: a lost answer must not drop it,
-                        # and the next account would mean a second payment — keep asking instead
+                    except (TransientError, httpx.HTTPError, ValueError):
+                        # the task is with the workers already: a momentary inability of the
+                        # service to answer must not drop it, and the next account would mean a
+                        # second payment — keep asking until the deadline instead
                         continue
                     if j.get("status") == "ready":
                         return Result(j["solution"], 1.0, self.name, cost=float(j.get("cost") or 0) * account.rate,
