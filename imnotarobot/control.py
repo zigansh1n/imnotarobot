@@ -124,6 +124,9 @@ class Controller:
 
         threading.Thread(target=run, daemon=True, name="captcha-stack-server").start()
         self._write_runtime()
+        # the first permission answer lands in the background before the window asks for it;
+        # later ones come every minute from the menu bar, which never blocks on them either
+        self.refresh_permissions()
 
     def _write_runtime(self) -> None:
         """Lets other programs on this Mac find the running solver without being told its port."""
@@ -784,18 +787,26 @@ class Controller:
             self.promote([model_name])
 
     # --- start at login ---------------------------------------------------------
-    def refresh_permissions(self) -> dict[str, bool | None]:
-        """Asks macOS what it allows the app to do; the menu bar refreshes this now and then."""
+    def refresh_permissions(self) -> None:
+        """Asks macOS in a worker thread what it allows; answers merge into self.permissions as they arrive.
+
+        The ask itself never blocks this thread, whichever thread calls this, and the window reads
+        only what has landed, so a slow or missing answer never stalls the menu bar or the server.
+        """
         from . import permissions
 
-        self.permissions = {"background": permissions.background_allowed(LAUNCH_AGENT),
-                            "notifications": permissions.notifications_allowed()}
-        return self.permissions
+        def store(values: dict[str, bool | None]) -> None:
+            # a system queue calls this: whole values are merged, so a reader never sees halves
+            self.permissions.update(values)
+
+        def work():
+            store({"background": permissions.background_allowed(LAUNCH_AGENT)})
+            permissions.ask_notifications(lambda allowed: store({"notifications": allowed}))
+
+        threading.Thread(target=work, daemon=True, name="captcha-stack-permissions").start()
 
     def permission_warnings(self) -> list[dict[str, str]]:
-        """What macOS blocks, for the window to warn about; each comes with a Settings pane to open."""
-        if not self.permissions:
-            self.refresh_permissions()
+        """What macOS blocks, for the window to warn about; reads the last known values only."""
         out = []
         if self.starts_at_login() and self.permissions.get("background") is False:
             out.append({"id": "background", "text": tr("macOS не разрешает приложению работать в фоне — после включения Мака оно не запустится.")})
