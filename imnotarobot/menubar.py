@@ -186,7 +186,7 @@ class MenuBarApp(rumps.App):
         controller.hooks["panel-size"] = lambda h: self._on_main(self.panel.resize, h)
         self._started = False
         self._alarm_sounded = 0.0
-        self._perm_checked = 0.0
+        self._perm_checked = time.monotonic()
         rumps.Timer(self.tick, 2).start()
         threading.Thread(target=self._check_human, daemon=True).start()
         threading.Thread(target=self._keep_companions, daemon=True).start()
@@ -248,7 +248,7 @@ class MenuBarApp(rumps.App):
         self.notify_new_alerts()
         self.show_alarm()
         if time.monotonic() - self._perm_checked >= PERMISSIONS_EVERY:
-            # on this thread the notification center answers; the window then shows what is off
+            # the ask runs in its own worker thread; this thread only reads what has landed
             self._perm_checked = time.monotonic()
             self.c.refresh_permissions()
         job = self.c.bench

@@ -36,4 +36,4 @@ def no_real_permissions(monkeypatch):
     import imnotarobot.permissions as permissions
 
     monkeypatch.setattr(permissions, "background_allowed", lambda agent: None)
-    monkeypatch.setattr(permissions, "notifications_allowed", lambda: None)
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: store(None))

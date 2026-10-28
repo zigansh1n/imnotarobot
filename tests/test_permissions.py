@@ -1,5 +1,6 @@
 import sys
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -36,17 +37,30 @@ def ui(tmp_path, monkeypatch):
         yield c, client
 
 
+def land(ctl, **expect):
+    """Waits until the worker thread has stored the given answers (the app itself never waits)."""
+    for _ in range(300):
+        if all(ctl.permissions.get(k) is v for k, v in expect.items()):
+            return True
+        time.sleep(0.01)
+    return False
+
+
 def test_detectors_say_nothing_off_macos(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
+    got = []
+    permissions.ask_notifications(got.append)
+    assert got == [None]
     assert permissions.background_allowed(Path("/no/such/agent.plist")) is None
-    assert permissions.notifications_allowed() is None
 
 
 def test_blocked_permissions_become_warnings(ctl, monkeypatch):
     monkeypatch.setattr(permissions, "background_allowed", lambda agent: False)
-    monkeypatch.setattr(permissions, "notifications_allowed", lambda: False)
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: store(False))
     ctl.set_start_at_login(True)
-    assert ctl.refresh_permissions() == {"background": False, "notifications": False}
+    ctl.refresh_permissions()
+    assert land(ctl, background=False, notifications=False)
+    assert ctl.permissions == {"background": False, "notifications": False}
     warnings = ctl.permission_warnings()
     assert [w["id"] for w in warnings] == ["background", "notifications"]
     assert "фоне" in warnings[0]["text"] and "Уведомления" in warnings[1]["text"]
@@ -54,23 +68,65 @@ def test_blocked_permissions_become_warnings(ctl, monkeypatch):
 
 def test_allowed_or_silent_permissions_warn_about_nothing(ctl, monkeypatch):
     monkeypatch.setattr(permissions, "background_allowed", lambda agent: True)
-    monkeypatch.setattr(permissions, "notifications_allowed", lambda: None)
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: store(None))
     ctl.set_start_at_login(True)
+    ctl.refresh_permissions()
+    assert land(ctl, background=True, notifications=None)
     assert ctl.permission_warnings() == []
 
 
 def test_background_is_only_checked_with_the_login_item_on(ctl, monkeypatch):
     monkeypatch.setattr(permissions, "background_allowed", lambda agent: False)
-    monkeypatch.setattr(permissions, "notifications_allowed", lambda: True)
-    assert ctl.permission_warnings() == []
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: store(True))
+    ctl.refresh_permissions()
+    assert land(ctl, background=False)
+    assert ctl.permission_warnings() == []  # no login item yet, so nothing to warn about
     ctl.set_start_at_login(True)
     assert [w["id"] for w in ctl.permission_warnings()] == ["background"]
 
 
-def test_permission_warnings_reach_the_window(ui, monkeypatch):
+def test_refreshing_never_blocks_the_caller(ctl, monkeypatch):
+    monkeypatch.setattr(permissions, "background_allowed", lambda agent: None)
+
+    def slow(store):
+        time.sleep(0.3)
+        store(False)
+
+    monkeypatch.setattr(permissions, "ask_notifications", slow)
+    started = time.monotonic()
+    ctl.refresh_permissions()
+    assert time.monotonic() - started < 0.25  # the ask happens in a worker thread, not here
+    assert land(ctl, notifications=False) and ctl.permissions["notifications"] is False
+
+
+def test_an_unanswered_ask_keeps_the_last_known_values(ctl, monkeypatch):
+    monkeypatch.setattr(permissions, "background_allowed", lambda agent: False)
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: store(False))
+    ctl.refresh_permissions()
+    assert land(ctl, background=False, notifications=False)
+    # a later ask that gets no answer must not erase what was known
+    monkeypatch.setattr(permissions, "background_allowed", lambda agent: None)
+    monkeypatch.setattr(permissions, "ask_notifications", lambda store: None)
+    ctl.refresh_permissions()
+    assert land(ctl, background=None)
+    assert ctl.permissions == {"background": None, "notifications": False}
+
+
+def test_the_window_reads_only_what_has_landed(ui, monkeypatch):
     c, client = ui
-    monkeypatch.setattr(permissions, "notifications_allowed", lambda: False)
+
+    def refuses(name):
+        def fail(*args):
+            raise AssertionError(f"{name} was asked")
+
+        return fail
+
+    # state() must read the cache only: with the detectors made to refuse, it still answers
+    monkeypatch.setattr(permissions, "background_allowed", refuses("background"))
+    monkeypatch.setattr(permissions, "ask_notifications", refuses("notifications"))
     c.permissions = {}
+    assert client.get("/api/ui/state").json()["permissions"] == []
+    c.permissions = {"notifications": False}
     assert [w["id"] for w in client.get("/api/ui/state").json()["permissions"]] == ["notifications"]
 
 

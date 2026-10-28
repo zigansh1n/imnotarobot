@@ -1,15 +1,19 @@
 """Whether macOS lets the app run its login item in the background and show notifications.
 
-Both checks talk to system frameworks, which may be missing (off macOS) or refuse to speak to a
-process that is not the bundled app, so each returns True/False or None for "cannot tell". The
-window only warns about a firm False; the functions are small so the tests can stand in for them.
+Nothing here may block its caller: SMAppService answers one XPC call, the notification center
+calls its completion handler on a system queue, so answers are stored whenever they arrive and
+readers keep the last known values. Both frameworks are fine with a plain worker thread — where
+these functions must run, never on the menu bar's main thread or the server's event loop. Off
+macOS, or when the frameworks are missing, everything answers None; the functions are small so
+the tests can stand in for them.
 """
 
 import sys
+import threading
 import time
 from pathlib import Path
 
-UN_ANSWER_TIMEOUT = 1.0  # seconds
+ANSWER_WAIT = 1.0  # seconds the asking thread stays alive for the notification answer
 
 
 def background_allowed(agent: Path) -> bool | None:
@@ -33,37 +37,41 @@ def background_allowed(agent: Path) -> bool | None:
         return None
 
 
-def notifications_allowed() -> bool | None:
-    """Whether macOS shows the app's notifications; rumps posts through the same permission.
+def ask_notifications(store) -> None:
+    """Asks the notification center without waiting; store(True/False/None) gets the answer.
 
-    Never asked and style "none" both count as off, a denied or unknown state says so too.
+    Never asked and style "none" both count as off, a denied or unknown state says so too. The
+    answer normally arrives on the center's own queue; this keeps the asking thread's run loop
+    alive for a moment anyway, in case this macOS delivers it there — so call it from a worker
+    thread, not from one that must not block.
     """
     if sys.platform != "darwin":
-        return None
+        store(None)
+        return
     try:
+        from Foundation import NSDate, NSRunLoop
         from UserNotifications import (UNAuthorizationStatusAuthorized, UNAuthorizationStatusEphemeral,
                                        UNAuthorizationStatusProvisional, UNNotificationSettingDisabled,
                                        UNUserNotificationCenter)
 
         center = UNUserNotificationCenter.currentNotificationCenter()
-        got: dict = {}
+        answered = threading.Event()
 
         def read(settings):
             try:
-                got["status"] = int(settings.authorizationStatus())
-                got["alert"] = int(settings.alertSetting())
+                status = int(settings.authorizationStatus())
+                alert = int(settings.alertSetting())
+                authorized = status in (UNAuthorizationStatusAuthorized, UNAuthorizationStatusProvisional,
+                                        UNAuthorizationStatusEphemeral)
+                store(authorized and alert != UNNotificationSettingDisabled)
             except Exception:
-                got["error"] = True
+                store(None)
+            finally:
+                answered.set()
 
         center.getNotificationSettingsWithCompletionHandler_(read)
-        # the answer arrives on the center's own queue, so plain waiting is enough
-        deadline = time.monotonic() + UN_ANSWER_TIMEOUT
-        while not got and time.monotonic() < deadline:
-            time.sleep(0.05)
-        if got.get("error") or "status" not in got:
-            return None
-        authorized = got["status"] in (UNAuthorizationStatusAuthorized, UNAuthorizationStatusProvisional,
-                                       UNAuthorizationStatusEphemeral)
-        return authorized and got["alert"] != UNNotificationSettingDisabled
+        deadline = time.monotonic() + ANSWER_WAIT
+        while not answered.is_set() and time.monotonic() < deadline:
+            NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.05))
     except Exception:
-        return None
+        store(None)
