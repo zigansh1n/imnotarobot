@@ -401,3 +401,18 @@ def test_enabling_a_model_checks_it_in_the_background_and_switches_off_picture_r
         assert list(c.toasts) == ["no-vision:openai/gpt-x"]  # one message, not one per check
     finally:
         LAST_ERRORS.pop("vlm:openai/gpt-x", None)
+
+
+def test_extension_folder_is_revealed_in_finder(ui, monkeypatch, tmp_path):
+    c, client = ui
+    import imnotarobot.ui as ui_mod
+
+    monkeypatch.setattr(ui_mod, "EXTENSION_DIR", tmp_path / "extension")
+    (tmp_path / "extension").mkdir()
+    calls = []
+    monkeypatch.setattr("subprocess.run", lambda cmd, **k: calls.append(cmd))
+    r = client.post("/api/ui/open-extension-folder", json={}).json()
+    assert r["ok"] and r["message"] == "Открыл папку расширения в Finder."
+    assert calls == [["open", "-R", str(tmp_path / "extension")]]
+    monkeypatch.setattr(ui_mod, "EXTENSION_DIR", tmp_path / "nowhere")
+    assert client.post("/api/ui/open-extension-folder", json={}).status_code == 400

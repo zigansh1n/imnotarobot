@@ -26,6 +26,8 @@ if TYPE_CHECKING:
     from .control import Controller
 
 PAGE = Path(__file__).with_name("assets") / "ui.html"
+# ships with the app: the browser extension whose folder the window reveals in Finder
+EXTENSION_DIR = Path(__file__).with_name("extension")
 
 TYPE_TITLES = {
     "ImageToTextTask": tr("Текст на картинке"), "GridTask": tr("Сетка картинок"), "CoordinatesTask": tr("Клик по картинке"),
@@ -375,6 +377,11 @@ def add_ui_routes(app: FastAPI, c: "Controller") -> None:
         if action == "copy-key":
             subprocess.run(["pbcopy"], input=c.cfg.client_key.encode(), check=False)
             return done(tr("Ключ доступа скопирован."))
+        if action == "open-extension-folder":
+            if not EXTENSION_DIR.is_dir():
+                raise ValueError(tr("в этой сборке нет папки расширения"))
+            subprocess.run(["open", "-R", str(EXTENSION_DIR)], check=False)
+            return done(tr("Открыл папку расширения в Finder."))
         if action == "copy-address":
             subprocess.run(["pbcopy"], input=c.address.encode(), check=False)
             return done(tr("Адрес {address} скопирован.", address=c.address))

@@ -343,6 +343,14 @@ body.pop { --tile: rgba(255,255,255,.62); --fill: rgba(0,0,0,.06); --line: rgba(
         <div class="kv" id="companionRow" hidden><div><b>Держать запущенным <span id="companionNames"></span></b><br><span class="mut">Включено — приложение запускает программу и открывает снова, если её закрыли. Выключено — никогда не запускает её само.</span></div>
           <label class="switch"><input type="checkbox" id="companionRestart"><span></span></label></div>
       </div>
+      <div class="label">Расширение для браузера</div>
+      <div class="panel">
+        <div class="sub">Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.</div>
+        <div class="kv"><div><b>Папка расширения</b><br><span class="mut">Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.</span></div>
+          <button id="showExt">Показать папку</button></div>
+        <div class="kv"><div><b>Ключ доступа</b><br><span class="mut">Вставьте его в настройках расширения один раз. Адрес сервера там уже стоит: http://127.0.0.1:8765.</span></div>
+          <button id="copyKeyExt">Скопировать ключ</button></div>
+      </div>
       <details><summary>Примеры запросов</summary>
         <div class="label" style="margin-top:12px">Новый API</div><pre id="exampleV2"></pre>
         <div class="label" style="margin-top:0">Старый API</div><pre id="exampleV1"></pre>
@@ -445,6 +453,16 @@ const EN = {
   "Без ключа любая программа на этом Маке сможет тратить ваши деньги.": "Without it, any program on this Mac can spend your money.",
   "Запускать при входе": "Start at login", "Начинает работать сразу после включения Мака.": "Starts working as soon as the Mac is on.",
   "Примеры запросов": "Request examples", "Новый API": "New API", "Старый API": "Old API", "Проверить подключение": "Check the connection",
+  "Расширение для браузера": "Browser extension",
+  "Капчи на открытых страницах решаются сами, без кликов: Chrome и антидетект-браузеры на Chromium.":
+    "Captchas on open pages get solved by themselves, no clicking: Chrome and Chromium-based anti-detect browsers.",
+  "Папка расширения": "Extension folder",
+  "Chrome: chrome://extensions → включите «Режим разработчика» → «Загрузить распакованное расширение» → выберите её. В антидетект-браузере (Dolphin Anty, AdsPower, Octo) добавьте её как локальное расширение к профилю.":
+    "Chrome: chrome://extensions → turn on «Developer mode» → «Load unpacked» → pick this folder. In an anti-detect browser (Dolphin Anty, AdsPower, Octo) add it to the profile as a local extension.",
+  "Показать папку": "Show the folder",
+  "Вставьте его в настройках расширения один раз. Адрес сервера там уже стоит: http://127.0.0.1:8765.":
+    "Paste it once into the extension settings. The server address is already set there: http://127.0.0.1:8765.",
+  "Скопировать ключ": "Copy the key",
   "не требуется": "not required", "любой": "any",
   "Нажмите на строку, чтобы увидеть картинку, ответ и путь по ступеням. Хранятся последние 300.": "Click a row to see the picture, the answer and the path through the steps. The last 300 are kept.",
   "Все": "All", "Не решённые": "Unsolved", "«Не уверен»": "«Unsure»", "Отмеченные неверными": "Marked wrong", "Статистика": "Statistics",
@@ -962,6 +980,8 @@ document.addEventListener("click", async e => {
   if (t.id === "copyAddr") return api("copy-address", {}, t);
   if (d.pane) return api("open-url", {url: PANES[d.pane] || ""});
   if (t.id === "copyKey") return api("copy-key", {}, t);
+  if (t.id === "copyKeyExt") return api("copy-key", {}, t);
+  if (t.id === "showExt") return api("open-extension-folder", {}, t);
   if (t.id === "newKey") { if (await ask("Создать новый ключ доступа? Старый перестанет работать — его нужно будет заменить в ваших программах.", "Создать")) api("access", {regenerate: true}, t); return; }
   if (t.id === "checkConn") return api("check-connection", {}, t);
   if (t.id === "checkHuman") return api("check-human", {}, t);

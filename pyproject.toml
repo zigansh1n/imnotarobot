@@ -28,4 +28,5 @@ pythonpath = [".", "tests"]
 include = ["imnotarobot*"]
 
 [tool.setuptools.package-data]
-imnotarobot = ["assets/*.png", "assets/*.html"]
+# extension/ holds the browser extension; its deepest files sit three folders down
+imnotarobot = ["assets/*.png", "assets/*.html", "extension/*", "extension/*/*", "extension/*/*/*", "extension/*/*/*/*"]

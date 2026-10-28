@@ -25,6 +25,7 @@
 1. Download `ImNotARobot.dmg` from [Releases](https://github.com/zigansh1n/imnotarobot/releases) and move the app to Applications. It is not signed by Apple yet: if macOS blocks the first launch, press **Open Anyway** in System Settings → Privacy & Security. Later versions install from the app: it checks GitHub once a day and shows an **Update** button.
 2. Paste a key of any vision model into **Keys and models**: the provider is detected and the best model for captchas switches on by itself. No key yet? Gemini has a free tier at [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 3. In your program, change the captcha service address to `http://127.0.0.1:8765` and the API key to the access key from **Connection**.
+4. Want captchas solved right in the browser, with no program at all? **Connection → Browser extension** shows the bundled Chrome extension: load it unpacked (or into an anti-detect browser profile) and paste the access key into it once.
 
 Optional: add a RuCaptcha or 2Captcha key as the last, paid step.
 

@@ -1,0 +1,161 @@
+{
+  "extName": {
+    "message": "Решатель капч для «Я не робот»"
+  },
+  "extDescription": {
+    "message": "Решает капчи на любых страницах через локальную программу «Я не робот»."
+  },
+  "extShortName": {
+    "message": "Captcha Solver"
+  },
+  "optionsPageTitle": {
+    "message": "Настройки решателя капч"
+  },
+  "accountSettings": {
+    "message": "Настройки аккаунта:"
+  },
+  "apiKey": {
+    "message": "API-ключ:"
+  },
+  "apiService": {
+    "message": "Сервер API:"
+  },
+  "apiKeyIsAppKey": {
+    "message": "Ключ — это ключ доступа из программы «Я не робот»: окно, раздел «Подключение»."
+  },
+  "connect": {
+    "message": "Подключить"
+  },
+  "generalSettings": {
+    "message": "Общие настройки:"
+  },
+  "enablePlugin": {
+    "message": "Включить плагин"
+  },
+  "submitFormsAutomatically": {
+    "message": "Отправлять формы автоматически"
+  },
+  "settingsLink": {
+    "message": "Настройки"
+  },
+  "manualLink": {
+    "message": "Документация"
+  },
+  "enabledSolveAutomatically": {
+    "message": "Включено / Решать автоматически"
+  },
+  "minScore": {
+    "message": "мин. score:"
+  },
+  "balance": {
+    "message": "Баланс"
+  },
+  "login": {
+    "message": "Войти"
+  },
+  "logout": {
+    "message": "Выход"
+  },
+  "accountSuccessfullyConnected": {
+    "message": "Подключено к решателю!"
+  },
+  "solveWith2Captcha": {
+    "message": "Решить капчу"
+  },
+  "solving": {
+    "message": "Решается..."
+  },
+  "solved": {
+    "message": "Капча решена!"
+  },
+  "delay": {
+    "message": "Задержка"
+  },
+  "seconds": {
+    "message": "секунд"
+  },
+  "ifErrorRepeat": {
+    "message": "В случае ошибки, повторить"
+  },
+  "times": {
+    "message": "раз"
+  },
+  "proxySettings": {
+    "message": "Настройки прокси"
+  },
+  "useProxy": {
+    "message": "Использовать прокси"
+  },
+  "proxyType": {
+    "message": "Тип прокси"
+  },
+  "images": {
+    "message": "Изображения"
+  },
+  "markAsCaptchaSource": {
+    "message": "Решать эту капчу"
+  },
+  "putCaptchaAnswerHere": {
+    "message": "Вставить ответ на капчу сюда"
+  },
+  "normalManual": {
+    "message": "Расположение изображения с капчей сохранено. Теперь укажите поле, куда вставить ответ."
+  },
+  "autoSubmitRules": {
+    "message": "Правила автоотправки форм"
+  },
+  "autoSubmitDescription": {
+    "message": "По умолчанию, функция \"Автоотправка\", после получения ответа, сабмитит форму, в которой находиться капча. Если после успешного решения капчи нужно сделать что-то другое, например нажать какую-то кнопку, укажите это здесь:"
+  },
+  "autoSubmitNoRules": {
+    "message": "Еще не добавлено ни одного правила..."
+  },
+  "autoSubmitCreateNewRule": {
+    "message": "Создать новое правило"
+  },
+  "autoSubmitAlertFormOpened": {
+    "message": "Please save or cancel previously opened form first!"
+  },
+  "autoSubmitAlertUrlRequired": {
+    "message": "URL шаблон не заполнен!"
+  },
+  "autoSubmitAlertUrlInvalid": {
+    "message": "URL шаблон должен быть валидным regexp!"
+  },
+  "autoSubmitAlertCodeRequired": {
+    "message": "Код не заполнен!"
+  },
+  "autoSubmitConfirmDelete": {
+    "message": "Удалить правило"
+  },
+  "autoSubmitPlaceholderUrl": {
+    "message": "URL шаблон (regexp), например:"
+  },
+  "autoSubmitPlaceholderCode": {
+    "message": "Последовательность действий для выполнения, например:"
+  },
+  "save": {
+    "message": "Сохранить"
+  },
+  "cancel": {
+    "message": "Отменить"
+  },
+  "edit": {
+    "message": "Изменить"
+  },
+  "delete": {
+    "message": "Удалить"
+  },
+  "blackListDomain": {
+    "message": "Черный список URL"
+  },
+  "buttonPosition": {
+    "message": "Расположение кнопки"
+  },
+  "buttonPositionInner": {
+    "message": "Рядом с капчей"
+  },
+  "buttonPositionFixed": {
+    "message": "Правый нижний угол"
+  }
+}

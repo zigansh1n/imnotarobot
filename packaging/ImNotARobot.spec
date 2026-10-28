@@ -19,6 +19,12 @@ hiddenimports += collect_submodules("mcp", filter=lambda name: not name.startswi
 datas += collect_data_files("mcp")
 datas += collect_data_files("imnotarobot")
 
+# the browser extension rides inside the imnotarobot package; this makes sure every one of
+# its files lands in the bundle (duplicates with collect_data_files above simply drop out)
+_ext = Path(SPECPATH, "../imnotarobot/extension").resolve()
+datas += [(str(p), "imnotarobot/extension" + ("" if p.parent == _ext else "/" + p.parent.relative_to(_ext).as_posix()))
+          for p in _ext.rglob("*") if p.is_file()]
+
 datas += [("en.lproj/InfoPlist.strings", "en.lproj"), ("ru.lproj/InfoPlist.strings", "ru.lproj")]
 a = Analysis(["app_main.py"], pathex=[".."], datas=datas, binaries=binaries, hiddenimports=hiddenimports,
              excludes=["tkinter", "matplotlib", "pytest"])

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title data-lang="optionsPageTitle"></title>
+    <link rel="stylesheet" href="/manual/manual.css">
+</head>
+<body>
+
+<header>
+    <img src="/assets/images/logo.svg" height="32">
+</header>
+
+<div class="container">
+
+    <div class="menu">
+        <a href="#about" class="active">About</a>
+        <a href="#api-key">API-KEY</a>
+        <a href="#enable-plugin">Enable plugin</a>
+        <a href="#submit-forms-automatically">Submit forms automatically</a>
+        <a href="#if-error-happens-repeat">If error happens, repeat</a>
+        <a href="#enabled-solve-automatically">Enabled / Solve automatically</a>
+        <a href="#proxy">Proxy</a>
+        <a href="#image-captcha-solving">Image captcha solving</a>
+    </div>
+
+    <div class="content">
+
+        <div id="about" class="active">
+            <h2>About</h2>
+            <p>This plugin allows you to automatically solve CAPTCHAs found on any webpage.</p>
+            <p>It is a fork of the 2Captcha extension that talks to the local ImNotARobot app
+            (the menu bar solver) instead of a paid service. The app tries free solvers first —
+            a local model, then the vision models you configured — and only then human workers,
+            so most captchas cost nothing.</p>
+
+            <p>😆 The extension is made for those users who can't bypass a captcha for some reason being either banned by captcha or not able to read it.</p>
+
+            <p>🚀 For now extension supports:<br>
+            ✅ Simple captcha⭐️ (an image with symbols)<br>
+            ✅ reCaptcha V2 / V2 Invisible / V3 / Enterprise<br>
+            ✅ hCaptcha<br>
+            ✅ GeeTest<br>
+            ✅ Arkose Labs Captcha (FunCaptcha)<br>
+            ✅ KeyCaptcha
+            </p>
+
+            <p>🚀 How it works:</p>
+            <p>The extension goes through page's HTML code. If it contains a captcha code the extension sends a request to the local ImNotARobot server for resolution.</p>
+            <p>When captcha is solved, extension sets a solution inside HTML code of the page. Then it could be used automatically when user submits a filled form.</p>
+            <p>Keep in mind that solution is valid for 120 seconds only. It means you have 117-119 seconds to complete the form and submit it.</p>
+
+        </div>
+
+        <div id="api-key">
+            <h2>API-KEY</h2>
+            <p>The access key of the ImNotARobot app: open its window, section «Connection», and copy «Access key». Paste it here once.</p>
+            <p>«API server» is the address of the app, <b>http://127.0.0.1:8765</b> by default. The manifest allows only localhost addresses.</p>
+        </div>
+
+        <div id="enable-plugin">
+            <h2>Enable plugin</h2>
+            <p>Enables HTML code analysis.</p>
+        </div>
+
+        <div id="submit-forms-automatically">
+            <h2>Submit forms automatically</h2>
+            <p>Enables automatic submission of forms upon receiving a captcha resolution. Please be extra careful with this option. Some web forms doesn't have validation of data indicated. It leads to page refresh with an error message indicating fields to be filled. Extension will send a new captcha resolution request to 2captcha API and then will send a form again and again until you close this browser tab or you run out of balance on 2captcha.</p>
+            <p><b>Delay</b> - You may set up a delayed automatic submission, indicating amount of seconds of the delay.</p>
+            <p>By default, plugin submits the form. If needed, another behaviour can be specified. For example, once captcha is solved, plugin can execute custom javascript code on certain pages. This behaviour can be configured in <a href="/options/options.html#autosubmit-rules" target="_blank">AutoSubmit rules</a> section.
+            <p>Custom Javascript code can be generated based on the list of defined actions, for example:</p>
+            <p>1. Click on element with id "login-button"</p>
+            <div style="margin-left: 12px;">
+                <p>Javascript:</p>
+                <pre>document.getElementById("login-button").click()</pre>
+                <p>Actions:</p>
+                <pre>{"type":"source","value":"document"}
+{"type":"method","value":"getElementById","args":["login-button"]}
+{"type":"method","value":"click"}</pre>
+            </div>
+            <p>2. Traverse DOM:</p>
+            <div style="margin-left: 12px;">
+                <p>Javascript:</p>
+                <pre>document.querySelector(".captcha-solver").closest("form").children[1].click()</pre>
+                <p>Actions:</p>
+                <pre>{"type":"source","value":"document"}
+{"type":"method","value":"querySelector","args":[".captcha-solver"]}
+{"type":"method","value":"closest","args":["form"]}
+{"type":"property","value":"children"}
+{"type":"index","value":1}
+{"type":"method","value":"click"}</pre>
+            </div>
+            <p>3. Execute predefined function:</p>
+            <div style="margin-left: 12px;">
+                <p>Javascript:</p>
+                <pre>login("username", "password")</pre>
+                <p>Actions:</p>
+                <pre>{"type":"source","value":"window"}
+{"type":"method","value":"login","args":["username", "password"]}</pre>
+            </div>
+        </div>
+
+        <div id="if-error-happens-repeat">
+            <h2>If error happens, repeat</h2>
+            <p>Try to send a request again if a solution from the solver didn't work or the extension failed to send the captcha challenge. Please note, if a website with a captcha challenge refuse to accept a captcha resolution from extension, it will refresh a page with captcha and extension will detect it as a new captcha page. Even if this option is not enabled, the extension will send a captcha request to the local solver.</p>
+            <p><b>Delay</b> - You may set up a delay for repeat of captcha submission, indicating amount of seconds of delay.</p>
+        </div>
+
+        <div id="enabled-solve-automatically">
+            <h2>Enabled / Solve automatically</h2>
+            <p>Check options accordingly for every captcha type.</p>
+            <p><b>Enabled</b> - Check a code of the page for this type of captcha.</p>
+            <p><b>Solve automatically</b> - If set, an extension will send this captcha challenge to the local solver for resolution when found. If you leave it unchecked, an extension will add a "Solve captcha" button to this webpage. If the captcha is invisible, the button will be placed under form submission button. Please check screenshots below.</p>
+        </div>
+
+        <div id="proxy">
+            <h2>Proxy</h2>
+            <p><b>Use proxy</b> - enable this option if you want a captcha to be solved via your proxy server.</p>
+            <p><b>Proxy type</b> - indicate proxy type. We only support HTTP. HTTPS. SOCKS4 and SOCKS5. We can't detect proxy type automatically so you have to indicate it.</p>
+            <p><b>login:password@123.123.123.123:3128</b> - indicate your proxy address, port and credentials accordingly. If your proxy doesn't need authorization, leave only IP and port: "123.123.123.123:3128"</p>
+            <p>The local solver ignores these settings: solving happens on this Mac, and captchas that go to human workers carry the proxy of the app's own settings.</p>
+        </div>
+
+        <div id="image-captcha-solving">
+            <h2>Image captcha solving</h2>
+            <p>The extension could not detect where is a captcha located and where exactly a resolution should be placed in when captcha is solved. So you have to indicate this for every website you will need to bypass captcha on. To do so Right click on a picture and choose "Solve this captcha" to let extension know where the captcha is located. Then do the same for resolution field, Right click on it and choose "Insert captcha resolution here". These parameters will be stored in the extension settings for this particular website.</p>
+        </div>
+
+    </div>
+
+</div>
+
+<br><br>
+
+<!-- SCRIPTS -->
+<script src="/vendor/jquery/3.5.1/jquery.min.js"></script>
+<script src="/common/i18n.js"></script>
+<script src="/manual/manual.js"></script>
+
+</body>
+</html>
