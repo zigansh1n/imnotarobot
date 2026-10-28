@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable
 
 from PIL import Image
 
-from . import tiles
+from . import profile, tiles
 from .hands import Hands, to_page
 from .base import Layer, Result, Unavailable, Unsolvable
 from ..i18n import tr
@@ -93,7 +93,8 @@ def proxy_of(task: dict[str, Any]) -> dict[str, str] | None:
 class BrowserLayer(Layer):
     name = "browser"
     title = tr("Браузер")
-    task_types = frozenset(KINDS)
+    # DataDome and Arkose are solved only in the client's own browser (cdpEndpoint); without it they go on to 2Captcha
+    task_types = frozenset(KINDS) | frozenset(profile.KINDS)
 
     def __init__(self, models: Solver | None, timeout: float = 150.0, rounds: int = 8, parallel: int = 2):
         self.models = models
@@ -113,6 +114,16 @@ class BrowserLayer(Layer):
         return sys.platform != "darwin" or any(p.exists() for p in CHROME_PATHS)
 
     async def solve(self, task: dict[str, Any]) -> Result:
+        if task["type"] in profile.KINDS:
+            try:
+                solution = await profile.solve_in_profile(task, self.models, drag_like_a_hand, self.timeout)
+            except asyncio.TimeoutError:
+                raise Unsolvable(tr("браузер не получил ответ за {seconds} с", seconds=f"{self.timeout:.0f}")) from None
+            except Unsolvable:
+                raise
+            except Exception as e:
+                raise Unsolvable(tr("браузер: {error}", error=str(e).splitlines()[0][:200])) from e
+            return Result(solution, 1.0, self.name)
         kind = KINDS[task["type"]]
         url = str(task.get("websiteURL") or "").split("#")[0]
         if not url.startswith("http"):

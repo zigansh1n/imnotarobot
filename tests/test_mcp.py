@@ -65,3 +65,16 @@ def test_a_slow_captcha_comes_back_as_solving_and_get_result_finishes_it(running
     monkeypatch.setattr(mcp_server, "WAIT_PER_CALL", 30.0)
     done = mcp_server.get_result(first["task_id"])
     assert done["answer"] == {"text": "k7m2p"} and done["task_id"] == first["task_id"]
+
+
+def test_slider_goes_through_the_mcp_tool(running, tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    bg = Image.fromarray(np.random.default_rng(2).integers(0, 255, (120, 260, 3), dtype=np.uint8))
+    piece = bg.crop((170, 40, 210, 80))
+    bg.paste(piece.point(lambda v: v // 2), (170, 40))
+    bg.save(tmp_path / "bg.png")
+    piece.save(tmp_path / "piece.png")
+    r = mcp_server.solve_image_captcha(str(tmp_path / "bg.png"), kind="slide", piece=str(tmp_path / "piece.png"))
+    assert abs(r["answer"]["x"] - 170) <= 2 and r["layer"] == "local"

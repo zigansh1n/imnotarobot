@@ -36,6 +36,7 @@ Optional: add a RuCaptcha or 2Captcha key as the last, paid step.
 | 2. Vision model (any: GPT, Claude, Gemini, Qwen, DeepSeek, Grok, local) | text, picture grids, clicks | free tier or cents | 3–8 s |
 | 3. Backup vision model (another model or the same with thinking) | what step 2 was unsure about | free tier or cents | 10–50 s |
 | 4. Browser (invisible Chrome) | reCAPTCHA v2/v3, hCaptcha, Turnstile | free | 3 s – 2 min |
+| 4a. Your own browser over CDP (anti-detect profile) | DataDome slider, Arkose FunCaptcha | free | 5–60 s |
 | 5. RuCaptcha / 2Captcha | anything | paid | 10–60 s |
 
 ## Measured results
@@ -49,6 +50,8 @@ On our test set and the official demo pages, October 2026. Small samples; rerun 
 | reCAPTCHA v2 demo (browser) | accepted by Google 2 of 3, median 118 s |
 | reCAPTCHA v3, Turnstile test key (browser) | 5 of 5, 3–4 s |
 | hCaptcha demo (browser) | 5 of 5, median 82 s |
+| DataDome slider on etsy.com, seloger.com (own Chrome over CDP) | 2 of 2; an IP block is reported as such |
+| Arkose FunCaptcha | not checked on a live challenge yet |
 
 ## Which model is best
 
@@ -86,7 +89,7 @@ The old API (`in.php` / `res.php`) works too. Besides the 2Captcha fields, `getT
 {"mcpServers": {"imnotarobot": {"command": "/Applications/ImNotARobot.app/Contents/MacOS/ImNotARobot", "args": ["--mcp"]}}}
 ```
 
-Tools: `solve_image_captcha`, `solve_token_captcha`, `report_wrong`, `captcha_status`.
+Tools: `solve_image_captcha`, `solve_token_captcha`, `solve_in_browser`, `get_result`, `report_wrong`, `captcha_status`.
 
 ## Task types
 
@@ -97,7 +100,22 @@ Tools: `solve_image_captcha`, `solve_token_captcha`, `report_wrong`, `captcha_st
 | `CoordinatesTask` (answer in pixels) | | ✓ | | ✓ |
 | `SlideMatchTask` (own: `target` + `background`) | ✓ | | | |
 | `RecaptchaV2TaskProxyless`, `RecaptchaV3TaskProxyless`, `HCaptchaTaskProxyless`, `TurnstileTaskProxyless` | | | ✓ | ✓ |
+| `DataDomeSliderTask`, `FunCaptchaTask`, `FunCaptchaTaskProxyless` with `cdpEndpoint` | | | ✓ | ✓ |
 | Any other 2Captcha type | | | | ✓ |
+
+### DataDome and Arkose in your own browser
+
+Both judge the browser and its IP more than the answer, and the cookie or token they give is bound to that browser.
+So they are solved where they appear: in your anti-detect profile (Dolphin, AdsPower, Multilogin, Octo or Chrome
+started with `--remote-debugging-port`). Pass the profile's DevTools address as `cdpEndpoint`; `websiteURL` picks the tab.
+
+```json
+{"type": "DataDomeSliderTask", "cdpEndpoint": "http://127.0.0.1:9222", "websiteURL": "https://www.etsy.com/"}
+```
+
+The tab passes by itself; the answer also carries `cookie` and `userAgent` (DataDome) or `token` (Arkose).
+The browser is only connected to, never closed. If DataDome blocks the IP outright ("Access is temporarily restricted")
+no solver helps: the answer says so, change the proxy. Without `cdpEndpoint` the task goes to RuCaptcha.
 
 ## Server (Docker)
 

@@ -15,15 +15,17 @@ server = MCPServer(
     instructions=(
         "Solves captchas through the user's own «Я не робот» app (local model, then vision models, then RuCaptcha workers). "
         "Use solve_image_captcha when you have the captcha picture (a screenshot or a file); use solve_token_captcha when "
-        "the page has a reCAPTCHA, hCaptcha or Turnstile widget and you know its site key. If the site rejects an answer, "
+        "the page has a reCAPTCHA, hCaptcha or Turnstile widget and you know its site key; use solve_in_browser for DataDome "
+        "or Arkose FunCaptcha showing in a browser you can reach over CDP (an anti-detect profile). If the site rejects an answer, "
         "call report_wrong with the task_id so that layer is not trusted for that picture again. A slow captcha comes back "
         "as status \"solving\" with a task_id: call get_result with it until the answer arrives."
     ),
 )
 
-KINDS = {"text": "ImageToTextTask", "click": "CoordinatesTask", "grid": "GridTask"}
+KINDS = {"text": "ImageToTextTask", "click": "CoordinatesTask", "grid": "GridTask", "slide": "SlideMatchTask"}
 TOKEN_KINDS = {"recaptcha_v2": "RecaptchaV2TaskProxyless", "recaptcha_v3": "RecaptchaV3TaskProxyless",
                "hcaptcha": "HCaptchaTaskProxyless", "turnstile": "TurnstileTaskProxyless"}
+BROWSER_KINDS = {"datadome": "DataDomeSliderTask", "funcaptcha": "FunCaptchaTask"}
 
 
 def _client() -> Client:
@@ -65,12 +67,18 @@ def _result(r: dict) -> dict:
 
 @server.tool()
 @explained
-def solve_image_captcha(image: str, kind: Literal["text", "click", "grid"] = "text", instruction: str = "",
-                        rows: int = 3, columns: int = 3) -> dict:
+def solve_image_captcha(image: str, kind: Literal["text", "click", "grid", "slide"] = "text", instruction: str = "",
+                        rows: int = 3, columns: int = 3, piece: str = "") -> dict:
     """Solve a captcha picture. `image` is a file path, a data URL or base64. kind: text = type the characters;
     click = points to click (answer.coordinates in image pixels, in order); grid = tile numbers from 1, left to right,
-    top to bottom (answer.click). `instruction` is the captcha's task text, e.g. "select all images with buses"."""
-    task = {"type": KINDS[kind], "body": image_b64(image)}
+    top to bottom (answer.click); slide = `image` is the background with a gap and `piece` the puzzle piece, answer.x
+    is how far to move the piece. `instruction` is the captcha's task text, e.g. "select all images with buses"."""
+    if kind == "slide":
+        if not piece:
+            raise ToolError(tr("для слайдера нужен piece — картинка кусочка"))
+        task = {"type": KINDS[kind], "background": image_b64(image), "target": image_b64(piece)}
+    else:
+        task = {"type": KINDS[kind], "body": image_b64(image)}
     if instruction:
         task["comment"] = instruction
     if kind == "grid":
@@ -89,6 +97,19 @@ def solve_token_captcha(kind: Literal["recaptcha_v2", "recaptcha_v3", "hcaptcha"
     task = {"type": TOKEN_KINDS[kind], "websiteURL": page_url, "websiteKey": site_key}
     if action:
         task["pageAction"] = action
+    c = _client()
+    return _answer(c, c.create(task))
+
+
+@server.tool()
+@explained
+def solve_in_browser(kind: Literal["datadome", "funcaptcha"], cdp_endpoint: str, page_url: str = "") -> dict:
+    """Solve DataDome or Arkose FunCaptcha right in your own browser (an anti-detect profile) that is showing it.
+    cdp_endpoint is the profile's DevTools address, e.g. http://127.0.0.1:9222 or ws://...; page_url picks the tab.
+    The page passes by itself; answer.cookie (DataDome) or answer.token (Arkose) is returned in case you need it."""
+    task = {"type": BROWSER_KINDS[kind], "cdpEndpoint": cdp_endpoint}
+    if page_url:
+        task["websiteURL"] = page_url
     c = _client()
     return _answer(c, c.create(task))
 

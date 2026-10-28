@@ -31,6 +31,7 @@
 | 2. Облачная модель (любая: GPT, Claude, Gemini, Qwen, DeepSeek, Grok, своя) | текст, сетки картинок, клики | бесплатно или копейки | 3–8 с |
 | 3. Запасная облачная (другая модель или та же с раздумьями) | то, в чём вторая не уверена | бесплатно или копейки | 10–50 с |
 | 4. Браузер (невидимый Chrome) | reCAPTCHA v2/v3, hCaptcha, Turnstile | бесплатно | от 3 с до 2 мин |
+| 4а. Ваш браузер по CDP (профиль антидетекта) | слайдер DataDome, Arkose FunCaptcha | бесплатно | 5–60 с |
 | 5. RuCaptcha / 2Captcha | всё | платно | 10–60 с |
 
 ## Замеры
@@ -44,6 +45,8 @@
 | reCAPTCHA v2 на демо Google (браузер) | Google принял 2 из 3, медиана 118 с |
 | reCAPTCHA v3, тестовый ключ Turnstile (браузер) | 5 из 5, 3–4 с |
 | hCaptcha на демо (браузер) | 5 из 5, медиана 82 с |
+| Слайдер DataDome на etsy.com, seloger.com (свой Chrome по CDP) | 2 из 2; блокировка IP распознаётся |
+| Arkose FunCaptcha | на живой капче пока не проверен |
 
 ## Какая модель лучше
 
@@ -52,6 +55,20 @@
 ## Из кода
 
 Пример на Python, MCP и список видов заданий — в [английском README](README.md#use-from-code): они одинаковые для обоих языков. Старое API (`in.php` / `res.php`) тоже работает.
+
+### DataDome и Arkose в вашем браузере
+
+Обе защиты оценивают браузер и IP больше, чем ответ, а cookie или токен привязаны к этому браузеру. Поэтому решаем
+там, где капча появилась: в профиле антидетекта (Dolphin, AdsPower, Multilogin, Octo или Chrome с
+`--remote-debugging-port`). Передайте адрес DevTools профиля в `cdpEndpoint`, вкладку выберет `websiteURL`.
+
+```json
+{"type": "DataDomeSliderTask", "cdpEndpoint": "http://127.0.0.1:9222", "websiteURL": "https://www.etsy.com/"}
+```
+
+Вкладка проходит проверку сама, в ответе ещё `cookie` и `userAgent` (DataDome) или `token` (Arkose). Браузер мы только
+подключаем и не закрываем. Если DataDome сразу блокирует IP («Access is temporarily restricted»), не поможет никакой
+решатель: ответ так и скажет — смените прокси. Без `cdpEndpoint` задача уходит в RuCaptcha. В MCP это `solve_in_browser`.
 
 ## Сервер (Docker)
 
