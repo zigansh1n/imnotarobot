@@ -226,6 +226,8 @@ EN: dict[str, str] = {
     "Записал: этот слой на такой картинке больше не используется. Если решали люди — сервису отправлена жалоба.":
         "Noted: this step is no longer used on this picture. If humans solved it, a complaint went to the service.",
     "Ключ доступа скопирован.": "Access key copied.",
+    "Открыл папку расширения в Finder.": "The extension folder is revealed in Finder.",
+    "в этой сборке нет папки расширения": "this build has no extension folder",
     "Адрес {address} скопирован.": "Address {address} copied.",
     "Новый ключ доступа создан. Старый больше не работает — обновите его в своих программах.":
         "A new access key is created. The old one no longer works, update it in your programs.",

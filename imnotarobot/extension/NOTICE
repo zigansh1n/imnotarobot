@@ -1,0 +1,22 @@
+NOTICE
+
+This folder is a fork of the official 2Captcha browser extension
+https://github.com/rucaptcha/2captcha-solver (MIT license, (c) 2022 2captcha),
+upstream version 3.3.3. The original LICENSE is kept next to this file.
+
+Changes made by the ImNotARobot project:
+
+- every API call goes to the local ImNotARobot server (http://127.0.0.1:8765 by
+  default) instead of 2captcha.com / rucaptcha.com; the address is a setting;
+- the 2captcha soft id (referral number 2834), links to 2captcha.com, the
+  account sign-up hints and the contact block were removed;
+- host_permissions were narrowed from <all_urls> to localhost, so the extension
+  can only talk to the local solver; content scripts still run on all pages,
+  which is what detection needs;
+- the "account" panel now shows the balance of the ImNotARobot solver (the
+  balance of its human-workers step) and its currency;
+- the extension name, description and the solver-button text were rebranded,
+  and the broken key field of the options page was fixed.
+
+Everything else (captcha detection, page processing, the options UI) is
+upstream code.

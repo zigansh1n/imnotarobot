@@ -111,3 +111,59 @@ def test_legacy_file_upload_and_grid_answer_format():
 def test_legacy_rejects_unknown_method():
     with make([FakeLayer("local", [("a", 1.0)])]) as c:
         assert c.post("/in.php", data={"method": "geetest"}).text == "ERROR_BAD_PARAMETERS"
+
+
+def test_legacy_getbalance_answers_in_both_formats():
+    with make([FakeLayer("local", [("a", 1.0)])], client_key="secret") as c:
+        async def balance():
+            return 12.5
+
+        c.app.state.service.balance = balance
+        assert c.get("/res.php", params={"key": "secret", "action": "getbalance"}).text == "12.50000"
+        assert c.get("/res.php", params={"key": "secret", "action": "getbalance", "json": "1"}).json() == \
+            {"status": 1, "request": "12.50000"}
+        assert c.get("/res.php", params={"key": "nope", "action": "getbalance"}).text == "ERROR_KEY_DOES_NOT_EXIST"
+
+
+def test_legacy_userinfo_lets_the_extension_log_in():
+    """The extension's Login button checks the key with res.php?action=userinfo."""
+    with make([FakeLayer("local", [("a", 1.0)])], client_key="secret") as c:
+        async def balance():
+            return 200.0
+
+        c.app.state.service.balance = balance
+        r = c.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()
+        assert r["status"] == 1
+        assert r["request"]["key_type"] == "customer"  # anything else the extension calls a worker key
+        assert (r["request"]["balance"], r["request"]["valute"]) == ("200.00", "RUB")  # roubles: rucaptcha is the default
+        with make([FakeLayer("local", [("a", 1.0)])], client_key="secret", human_provider="2captcha") as c2:
+            c2.app.state.service.balance = balance
+            assert c2.get("/res.php", params={"key": "secret", "action": "userinfo", "json": "1"}).json()["request"]["valute"] == "USD"
+        assert c.get("/res.php", params={"key": "nope", "action": "userinfo"}).text == "ERROR_KEY_DOES_NOT_EXIST"
+
+
+class SlowLayer(FakeLayer):
+    """Keeps a task in the queue for a moment, so the polling answer can be checked."""
+
+    async def solve(self, task):
+        import asyncio
+
+        await asyncio.sleep(0.3)
+        return await super().solve(task)
+
+
+def test_extension_shaped_requests_roundtrip():
+    """The browser extension posts in.php as form data, always with json=1, and polls res.php the same way."""
+    with make([SlowLayer("local", [("w0rd", 0.99)])], client_key="secret") as c:
+        created = c.post("/in.php", data={"key": "secret", "method": "base64", "body": "aGk=",
+                                          "json": "1", "header_acao": "1"}).json()
+        assert created["status"] == 1 and created["request"].isdigit()
+        r = c.get("/res.php", params={"key": "secret", "action": "get", "id": created["request"], "json": "1"}).json()
+        assert r == {"status": 0, "request": "CAPCHA_NOT_READY"}  # what the extension keeps polling on
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            r = c.get("/res.php", params={"key": "secret", "action": "get", "id": created["request"], "json": "1"}).json()
+            if r["status"] == 1:
+                break
+            time.sleep(0.02)
+        assert r == {"status": 1, "request": "w0rd"}
